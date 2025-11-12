@@ -25,12 +25,27 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/swissmakers/fail2ban-ui/internal/config"
+	"github.com/swissmakers/fail2ban-ui/internal/fail2ban"
+	"github.com/swissmakers/fail2ban-ui/internal/storage"
 	"github.com/swissmakers/fail2ban-ui/pkg/web"
 )
 
 func main() {
 	// Get application settings from the config package.
 	settings := config.GetSettings()
+
+	if err := storage.Init(""); err != nil {
+		log.Fatalf("Failed to initialise storage: %v", err)
+	}
+	defer func() {
+		if err := storage.Close(); err != nil {
+			log.Printf("warning: failed to close storage: %v", err)
+		}
+	}()
+
+	if err := fail2ban.GetManager().ReloadFromSettings(settings); err != nil {
+		log.Fatalf("failed to initialise fail2ban connectors: %v", err)
+	}
 
 	// Set Gin mode based on the debug flag in settings.
 	if settings.Debug {

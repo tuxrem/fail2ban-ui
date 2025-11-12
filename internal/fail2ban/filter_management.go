@@ -17,15 +17,32 @@
 package fail2ban
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
-// GetFilterConfig returns the config content for a given jail filter.
-// Example: we assume each jail config is at /etc/fail2ban/filter.d/<jailname>.conf
-// Adapt this to your environment.
+// GetFilterConfig returns the filter configuration using the default connector.
 func GetFilterConfig(jail string) (string, error) {
+	conn, err := GetManager().DefaultConnector()
+	if err != nil {
+		return "", err
+	}
+	return conn.GetFilterConfig(context.Background(), jail)
+}
+
+// SetFilterConfig writes the filter configuration using the default connector.
+func SetFilterConfig(jail, newContent string) error {
+	conn, err := GetManager().DefaultConnector()
+	if err != nil {
+		return err
+	}
+	return conn.SetFilterConfig(context.Background(), jail, newContent)
+}
+
+// GetFilterConfigLocal reads a filter configuration from the local filesystem.
+func GetFilterConfigLocal(jail string) (string, error) {
 	configPath := filepath.Join("/etc/fail2ban/filter.d", jail+".conf")
 	content, err := os.ReadFile(configPath)
 	if err != nil {
@@ -34,8 +51,8 @@ func GetFilterConfig(jail string) (string, error) {
 	return string(content), nil
 }
 
-// SetFilterConfig overwrites the config file for a given jail with new content.
-func SetFilterConfig(jail, newContent string) error {
+// SetFilterConfigLocal writes the filter configuration to the local filesystem.
+func SetFilterConfigLocal(jail, newContent string) error {
 	configPath := filepath.Join("/etc/fail2ban/filter.d", jail+".conf")
 	if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to write config for jail %s: %v", jail, err)

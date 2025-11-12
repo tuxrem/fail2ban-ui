@@ -16,14 +16,7 @@
 
 package fail2ban
 
-import (
-	"errors"
-	"fmt"
-	"os"
-	"os/exec"
-	"strings"
-	"time"
-)
+import "context"
 
 type JailInfo struct {
 	JailName      string   `json:"jailName"`
@@ -33,146 +26,65 @@ type JailInfo struct {
 	Enabled       bool     `json:"enabled"`
 }
 
-// Get active jails using "fail2ban-client status".
+// GetJails returns the jail names for the default server.
 func GetJails() ([]string, error) {
-	cmd := exec.Command("fail2ban-client", "status")
-	out, err := cmd.CombinedOutput()
+	conn, err := GetManager().DefaultConnector()
 	if err != nil {
-		return nil, fmt.Errorf("error: unable to retrieve jail information. is your fail2ban service running? details: %v", err)
+		return nil, err
 	}
-
-	var jails []string
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "Jail list:") {
-			parts := strings.Split(line, ":")
-			if len(parts) > 1 {
-				raw := strings.TrimSpace(parts[1])
-				jails = strings.Split(raw, ",")
-				for i := range jails {
-					jails[i] = strings.TrimSpace(jails[i])
-				}
-			}
-		}
-	}
-	return jails, nil
-}
-
-// GetBannedIPs returns a slice of currently banned IPs for a specific jail.
-func GetBannedIPs(jail string) ([]string, error) {
-	cmd := exec.Command("fail2ban-client", "status", jail)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("fail2ban-client status %s failed: %v", jail, err)
-	}
-
-	var bannedIPs []string
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "IP list:") {
-			parts := strings.Split(line, ":")
-			if len(parts) > 1 {
-				ips := strings.Fields(strings.TrimSpace(parts[1]))
-				bannedIPs = append(bannedIPs, ips...)
-			}
-			break
-		}
-	}
-	return bannedIPs, nil
-}
-
-// UnbanIP unbans an IP from the given jail.
-func UnbanIP(jail, ip string) error {
-	// We assume "fail2ban-client set <jail> unbanip <ip>" works.
-	cmd := exec.Command("fail2ban-client", "set", jail, "unbanip", ip)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("error unbanning IP %s from jail %s: %v\nOutput: %s", ip, jail, err, out)
-	}
-	return nil
-}
-
-// BuildJailInfos returns extended info for each jail:
-// - total banned count
-// - new banned in the last hour
-// - list of currently banned IPs
-func BuildJailInfos(logPath string) ([]JailInfo, error) {
-	jails, err := GetJails()
+	infos, err := conn.GetJailInfos(context.Background())
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse the log once, so we can determine "newInLastHour" per jail
-	// for performance reasons. We'll gather all ban timestamps by jail.
-	banHistory, err := ParseBanLog(logPath)
-	if err != nil {
-		// If fail2ban.log can't be read, we can still show partial info.
-		banHistory = make(map[string][]BanEvent)
+	names := make([]string, 0, len(infos))
+	for _, info := range infos {
+		names = append(names, info.JailName)
 	}
-
-	oneHourAgo := time.Now().Add(-1 * time.Hour)
-
-	var results []JailInfo
-	for _, jail := range jails {
-		bannedIPs, err := GetBannedIPs(jail)
-		if err != nil {
-			// Just skip or handle error per jail
-			continue
-		}
-
-		// Count how many bans occurred in the last hour for this jail
-		newInLastHour := 0
-		if events, ok := banHistory[jail]; ok {
-			for _, e := range events {
-				if e.Time.After(oneHourAgo) {
-					newInLastHour++
-				}
-			}
-		}
-
-		jinfo := JailInfo{
-			JailName:      jail,
-			TotalBanned:   len(bannedIPs),
-			NewInLastHour: newInLastHour,
-			BannedIPs:     bannedIPs,
-		}
-		results = append(results, jinfo)
-	}
-	return results, nil
+	return names, nil
 }
 
-// ReloadFail2ban runs "fail2ban-client reload"
+// GetBannedIPs returns a slice of currently banned IPs for a specific jail.
+func GetBannedIPs(jail string) ([]string, error) {
+	conn, err := GetManager().DefaultConnector()
+	if err != nil {
+		return nil, err
+	}
+	return conn.GetBannedIPs(context.Background(), jail)
+}
+
+// UnbanIP unbans an IP from the given jail.
+func UnbanIP(jail, ip string) error {
+	conn, err := GetManager().DefaultConnector()
+	if err != nil {
+		return err
+	}
+	return conn.UnbanIP(context.Background(), jail, ip)
+}
+
+// BuildJailInfos returns extended info for each jail on the default server.
+func BuildJailInfos(_ string) ([]JailInfo, error) {
+	conn, err := GetManager().DefaultConnector()
+	if err != nil {
+		return nil, err
+	}
+	return conn.GetJailInfos(context.Background())
+}
+
+// ReloadFail2ban triggers a reload on the default server.
 func ReloadFail2ban() error {
-	cmd := exec.Command("fail2ban-client", "reload")
-	out, err := cmd.CombinedOutput()
+	conn, err := GetManager().DefaultConnector()
 	if err != nil {
-		return fmt.Errorf("fail2ban reload error: %v\noutput: %s", err, out)
+		return err
 	}
-	return nil
+	return conn.Reload(context.Background())
 }
 
-// RestartFail2ban restarts the Fail2ban service.
+// RestartFail2ban restarts the Fail2ban service using the default connector.
 func RestartFail2ban() error {
-
-	// Check if running inside a container.
-	if _, container := os.LookupEnv("CONTAINER"); container {
-		return fmt.Errorf("restart not supported inside container; please restart fail2ban on the host")
-	}
-	cmd := "systemctl restart fail2ban"
-	out, err := execCommand(cmd)
+	conn, err := GetManager().DefaultConnector()
 	if err != nil {
-		return fmt.Errorf("failed to restart fail2ban: %w - output: %s", err, out)
+		return err
 	}
-	return nil
-}
-
-// execCommand is a helper function to execute shell commands.
-func execCommand(command string) (string, error) {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
-		return "", errors.New("no command provided")
-	}
-	cmd := exec.Command(parts[0], parts[1:]...)
-	out, err := cmd.CombinedOutput()
-	return string(out), err
+	return conn.Restart(context.Background())
 }

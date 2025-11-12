@@ -44,6 +44,14 @@ func RegisterRoutes(r *gin.Engine) {
 		api.POST("/settings", UpdateSettingsHandler)
 		api.POST("/settings/test-email", TestEmailHandler)
 
+		// Fail2ban servers management
+		api.GET("/servers", ListServersHandler)
+		api.POST("/servers", UpsertServerHandler)
+		api.DELETE("/servers/:id", DeleteServerHandler)
+		api.POST("/servers/:id/default", SetDefaultServerHandler)
+		api.GET("/ssh/keys", ListSSHKeysHandler)
+		api.POST("/servers/:id/test", TestServerHandler)
+
 		// Filter debugger endpoints
 		api.GET("/filters", ListFiltersHandler)
 		api.POST("/filters/test", TestFilterHandler)
@@ -56,5 +64,9 @@ func RegisterRoutes(r *gin.Engine) {
 
 		// Handle Fail2Ban notifications
 		api.POST("/ban", BanNotificationHandler)
+
+		// Internal database overview
+		api.GET("/events/bans", ListBanEventsHandler)
+		api.GET("/events/bans/stats", BanStatisticsHandler)
 	}
 }

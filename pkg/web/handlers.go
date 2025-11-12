@@ -18,6 +18,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -27,6 +28,8 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +38,7 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/swissmakers/fail2ban-ui/internal/config"
 	"github.com/swissmakers/fail2ban-ui/internal/fail2ban"
+	"github.com/swissmakers/fail2ban-ui/internal/storage"
 )
 
 // SummaryResponse is what we return from /api/summary
@@ -43,34 +47,66 @@ type SummaryResponse struct {
 	LastBans []fail2ban.BanEvent `json:"lastBans"`
 }
 
+func resolveConnector(c *gin.Context) (fail2ban.Connector, error) {
+	serverID := c.Query("serverId")
+	if serverID == "" {
+		serverID = c.GetHeader("X-F2B-Server")
+	}
+	manager := fail2ban.GetManager()
+	if serverID != "" {
+		return manager.Connector(serverID)
+	}
+	return manager.DefaultConnector()
+}
+
+func resolveServerForNotification(serverID, hostname string) (config.Fail2banServer, error) {
+	if serverID != "" {
+		if srv, ok := config.GetServerByID(serverID); ok {
+			if !srv.Enabled {
+				return config.Fail2banServer{}, fmt.Errorf("server %s is disabled", serverID)
+			}
+			return srv, nil
+		}
+		return config.Fail2banServer{}, fmt.Errorf("serverId %s not found", serverID)
+	}
+	if hostname != "" {
+		if srv, ok := config.GetServerByHostname(hostname); ok {
+			if !srv.Enabled {
+				return config.Fail2banServer{}, fmt.Errorf("server for hostname %s is disabled", hostname)
+			}
+			return srv, nil
+		}
+	}
+	srv := config.GetDefaultServer()
+	if srv.ID == "" {
+		return config.Fail2banServer{}, fmt.Errorf("no default fail2ban server configured")
+	}
+	if !srv.Enabled {
+		return config.Fail2banServer{}, fmt.Errorf("default fail2ban server is disabled")
+	}
+	return srv, nil
+}
+
 // SummaryHandler returns a JSON summary of all jails, including
 // number of banned IPs, how many are new in the last hour, etc.
 // and the last 5 overall ban events from the log.
 func SummaryHandler(c *gin.Context) {
-	const logPath = "/var/log/fail2ban.log"
+	conn, err := resolveConnector(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
-	jailInfos, err := fail2ban.BuildJailInfos(logPath)
+	jailInfos, err := conn.GetJailInfos(c.Request.Context())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Parse the log to find last 5 ban events
-	eventsByJail, err := fail2ban.ParseBanLog(logPath)
-	lastBans := make([]fail2ban.BanEvent, 0)
-	if err == nil {
-		// If we can parse logs successfully, let's gather all events
-		var all []fail2ban.BanEvent
-		for _, evs := range eventsByJail {
-			all = append(all, evs...)
-		}
-		// Sort by descending time
-		sortByTimeDesc(all)
-		if len(all) > 5 {
-			lastBans = all[:5]
-		} else {
-			lastBans = all
-		}
+	lastBans, err := conn.FetchBanEvents(c.Request.Context(), 5)
+	if err != nil {
+		log.Printf("warning: failed to fetch ban events for summary: %v", err)
+		lastBans = []fail2ban.BanEvent{}
 	}
 
 	resp := SummaryResponse{
@@ -87,11 +123,14 @@ func UnbanIPHandler(c *gin.Context) {
 	jail := c.Param("jail")
 	ip := c.Param("ip")
 
-	err := fail2ban.UnbanIP(jail, ip)
+	conn, err := resolveConnector(c)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := conn.UnbanIP(c.Request.Context(), jail, ip); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	fmt.Println(ip + " from jail " + jail + " unbanned successfully.")
@@ -103,6 +142,7 @@ func UnbanIPHandler(c *gin.Context) {
 // BanNotificationHandler processes incoming ban notifications from Fail2Ban.
 func BanNotificationHandler(c *gin.Context) {
 	var request struct {
+		ServerID string `json:"serverId"`
 		IP       string `json:"ip" binding:"required"`
 		Jail     string `json:"jail" binding:"required"`
 		Hostname string `json:"hostname"`
@@ -148,8 +188,14 @@ func BanNotificationHandler(c *gin.Context) {
 	log.Printf("✅ Parsed Ban Request - IP: %s, Jail: %s, Hostname: %s, Failures: %s",
 		request.IP, request.Jail, request.Hostname, request.Failures)
 
+	server, err := resolveServerForNotification(request.ServerID, request.Hostname)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	// Handle the Fail2Ban notification
-	if err := HandleBanNotification(request.IP, request.Jail, request.Hostname, request.Failures, request.Whois, request.Logs); err != nil {
+	if err := HandleBanNotification(c.Request.Context(), server, request.IP, request.Jail, request.Hostname, request.Failures, request.Whois, request.Logs); err != nil {
 		log.Printf("❌ Failed to process ban notification: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process ban notification: " + err.Error()})
 		return
@@ -159,8 +205,214 @@ func BanNotificationHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Ban notification processed successfully"})
 }
 
-// HandleBanNotification processes Fail2Ban notifications, checks geo-location, and sends alerts.
-func HandleBanNotification(ip, jail, hostname, failures, whois, logs string) error {
+// ListBanEventsHandler returns stored ban events from the internal database.
+func ListBanEventsHandler(c *gin.Context) {
+	serverID := c.Query("serverId")
+	limit := 100
+	if limitStr := c.DefaultQuery("limit", "100"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	var since time.Time
+	if sinceStr := c.Query("since"); sinceStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			since = parsed
+		}
+	}
+
+	events, err := storage.ListBanEvents(c.Request.Context(), serverID, limit, since)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"events": events})
+}
+
+// BanStatisticsHandler returns aggregated ban counts per server.
+func BanStatisticsHandler(c *gin.Context) {
+	var since time.Time
+	if sinceStr := c.Query("since"); sinceStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			since = parsed
+		}
+	}
+
+	stats, err := storage.CountBanEventsByServer(c.Request.Context(), since)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"counts": stats})
+}
+
+// ListServersHandler returns configured Fail2ban servers.
+func ListServersHandler(c *gin.Context) {
+	servers := config.ListServers()
+	c.JSON(http.StatusOK, gin.H{"servers": servers})
+}
+
+// UpsertServerHandler creates or updates a Fail2ban server configuration.
+func UpsertServerHandler(c *gin.Context) {
+	var req config.Fail2banServer
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	switch strings.ToLower(req.Type) {
+	case "", "local":
+		req.Type = "local"
+	case "ssh":
+		if req.Host == "" || req.SSHUser == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ssh servers require host and sshUser"})
+			return
+		}
+	case "agent":
+		if req.AgentURL == "" || req.AgentSecret == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "agent servers require agentUrl and agentSecret"})
+			return
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported server type"})
+		return
+	}
+
+	server, err := config.UpsertServer(req)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := fail2ban.GetManager().ReloadFromSettings(config.GetSettings()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"server": server})
+}
+
+// DeleteServerHandler removes a server configuration.
+func DeleteServerHandler(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing id parameter"})
+		return
+	}
+	if err := config.DeleteServer(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := fail2ban.GetManager().ReloadFromSettings(config.GetSettings()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "server deleted"})
+}
+
+// SetDefaultServerHandler marks a server as default.
+func SetDefaultServerHandler(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing id parameter"})
+		return
+	}
+	server, err := config.SetDefaultServer(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := fail2ban.GetManager().ReloadFromSettings(config.GetSettings()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"server": server})
+}
+
+// ListSSHKeysHandler returns SSH keys available on the UI host.
+func ListSSHKeysHandler(c *gin.Context) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	dir := filepath.Join(home, ".ssh")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.JSON(http.StatusOK, gin.H{"keys": []string{}, "messageKey": "servers.form.no_keys"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var keys []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, "id_") || strings.HasSuffix(name, ".pem") || strings.HasSuffix(name, ".key") {
+			keys = append(keys, filepath.Join(dir, name))
+		}
+	}
+	if len(keys) == 0 {
+		c.JSON(http.StatusOK, gin.H{"keys": []string{}, "messageKey": "servers.form.no_keys"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"keys": keys})
+}
+
+// TestServerHandler verifies connectivity to a configured Fail2ban server.
+func TestServerHandler(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing id parameter"})
+		return
+	}
+	server, ok := config.GetServerByID(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "server not found"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	var (
+		conn fail2ban.Connector
+		err  error
+	)
+
+	switch server.Type {
+	case "local":
+		conn = fail2ban.NewLocalConnector(server)
+	case "ssh":
+		conn, err = fail2ban.NewSSHConnector(server)
+	case "agent":
+		conn, err = fail2ban.NewAgentConnector(server)
+	default:
+		err = fmt.Errorf("unsupported server type %s", server.Type)
+	}
+
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "messageKey": "servers.actions.test_failure"})
+		return
+	}
+
+	if _, err := conn.GetJailInfos(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error(), "messageKey": "servers.actions.test_failure"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"messageKey": "servers.actions.test_success"})
+}
+
+// HandleBanNotification processes Fail2Ban notifications, checks geo-location, stores the event, and sends alerts.
+func HandleBanNotification(ctx context.Context, server config.Fail2banServer, ip, jail, hostname, failures, whois, logs string) error {
 	// Load settings to get alert countries
 	settings := config.GetSettings()
 
@@ -168,12 +420,33 @@ func HandleBanNotification(ip, jail, hostname, failures, whois, logs string) err
 	country, err := lookupCountry(ip)
 	if err != nil {
 		log.Printf("⚠️ GeoIP lookup failed for IP %s: %v", ip, err)
-		return err
+		country = ""
+	}
+
+	event := storage.BanEventRecord{
+		ServerID:   server.ID,
+		ServerName: server.Name,
+		Jail:       jail,
+		IP:         ip,
+		Country:    country,
+		Hostname:   hostname,
+		Failures:   failures,
+		Whois:      whois,
+		Logs:       logs,
+		OccurredAt: time.Now().UTC(),
+	}
+	if err := storage.RecordBanEvent(ctx, event); err != nil {
+		log.Printf("⚠️ Failed to record ban event: %v", err)
 	}
 
 	// Check if country is in alert list
+	displayCountry := country
+	if displayCountry == "" {
+		displayCountry = "UNKNOWN"
+	}
+
 	if !shouldAlertForCountry(country, settings.AlertCountries) {
-		log.Printf("❌ IP %s belongs to %s, which is NOT in alert countries (%v). No alert sent.", ip, country, settings.AlertCountries)
+		log.Printf("❌ IP %s belongs to %s, which is NOT in alert countries (%v). No alert sent.", ip, displayCountry, settings.AlertCountries)
 		return nil
 	}
 
@@ -183,7 +456,7 @@ func HandleBanNotification(ip, jail, hostname, failures, whois, logs string) err
 		return err
 	}
 
-	log.Printf("✅ Email alert sent for banned IP %s (%s)", ip, country)
+	log.Printf("✅ Email alert sent for banned IP %s (%s)", ip, displayCountry)
 	return nil
 }
 
@@ -374,6 +647,11 @@ func UpdateSettingsHandler(c *gin.Context) {
 	}
 	config.DebugLog("Settings updated successfully (handlers.go)")
 
+	if err := fail2ban.GetManager().ReloadFromSettings(config.GetSettings()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload fail2ban connectors: " + err.Error()})
+		return
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":       "Settings updated",
 		"restartNeeded": newSettings.RestartNeeded,
@@ -385,7 +663,26 @@ func UpdateSettingsHandler(c *gin.Context) {
 func ListFiltersHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("ListFiltersHandler called (handlers.go)") // entry point
+	conn, err := resolveConnector(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	server := conn.Server()
+	if server.Type != "local" {
+		c.JSON(http.StatusOK, gin.H{"filters": []string{}, "messageKey": "filter_debug.not_available"})
+		return
+	}
+
 	dir := "/etc/fail2ban/filter.d"
+	if _, statErr := os.Stat(dir); statErr != nil {
+		if os.IsNotExist(statErr) {
+			c.JSON(http.StatusOK, gin.H{"filters": []string{}, "messageKey": "filter_debug.local_missing"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read filter directory: " + statErr.Error()})
+		return
+	}
 
 	files, err := os.ReadDir(dir)
 	if err != nil {
