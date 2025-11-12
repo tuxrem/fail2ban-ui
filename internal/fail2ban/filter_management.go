@@ -17,15 +17,34 @@
 package fail2ban
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
-// GetFilterConfig returns the config content for a given jail filter.
-// Example: we assume each jail config is at /etc/fail2ban/filter.d/<jailname>.conf
-// Adapt this to your environment.
+// GetFilterConfig returns the filter configuration using the default connector.
 func GetFilterConfig(jail string) (string, error) {
+	conn, err := GetManager().DefaultConnector()
+	if err != nil {
+		return "", err
+	}
+	return conn.GetFilterConfig(context.Background(), jail)
+}
+
+// SetFilterConfig writes the filter configuration using the default connector.
+func SetFilterConfig(jail, newContent string) error {
+	conn, err := GetManager().DefaultConnector()
+	if err != nil {
+		return err
+	}
+	return conn.SetFilterConfig(context.Background(), jail, newContent)
+}
+
+// GetFilterConfigLocal reads a filter configuration from the local filesystem.
+func GetFilterConfigLocal(jail string) (string, error) {
 	configPath := filepath.Join("/etc/fail2ban/filter.d", jail+".conf")
 	content, err := os.ReadFile(configPath)
 	if err != nil {
@@ -34,11 +53,61 @@ func GetFilterConfig(jail string) (string, error) {
 	return string(content), nil
 }
 
-// SetFilterConfig overwrites the config file for a given jail with new content.
-func SetFilterConfig(jail, newContent string) error {
+// SetFilterConfigLocal writes the filter configuration to the local filesystem.
+func SetFilterConfigLocal(jail, newContent string) error {
 	configPath := filepath.Join("/etc/fail2ban/filter.d", jail+".conf")
 	if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
 		return fmt.Errorf("failed to write config for jail %s: %v", jail, err)
 	}
 	return nil
+}
+
+// GetFiltersLocal returns a list of filter names from /etc/fail2ban/filter.d
+func GetFiltersLocal() ([]string, error) {
+	dir := "/etc/fail2ban/filter.d"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read filter directory: %w", err)
+	}
+	var filters []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".conf") {
+			name := strings.TrimSuffix(entry.Name(), ".conf")
+			filters = append(filters, name)
+		}
+	}
+	return filters, nil
+}
+
+// TestFilterLocal tests a filter against log lines using fail2ban-regex
+func TestFilterLocal(filterName string, logLines []string) ([]string, error) {
+	if len(logLines) == 0 {
+		return []string{}, nil
+	}
+	filterPath := filepath.Join("/etc/fail2ban/filter.d", filterName+".conf")
+	if _, err := os.Stat(filterPath); err != nil {
+		return nil, fmt.Errorf("filter %s not found: %w", filterName, err)
+	}
+	// Use fail2ban-regex with filter file directly - it handles everything
+	// Format: fail2ban-regex "log line" /etc/fail2ban/filter.d/filter-name.conf
+	var matches []string
+	for _, logLine := range logLines {
+		logLine = strings.TrimSpace(logLine)
+		if logLine == "" {
+			continue
+		}
+		cmd := exec.Command("fail2ban-regex", logLine, filterPath)
+		out, err := cmd.CombinedOutput()
+		output := strings.ToLower(string(out))
+		// fail2ban-regex returns success (exit 0) if the line matches
+		// Look for "matched" or "success" in output
+		if err == nil {
+			if strings.Contains(output, "matched") ||
+				strings.Contains(output, "success") ||
+				strings.Contains(output, "1 matched") {
+				matches = append(matches, logLine)
+			}
+		}
+	}
+	return matches, nil
 }

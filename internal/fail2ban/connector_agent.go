@@ -1,0 +1,293 @@
+package fail2ban
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"path"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/swissmakers/fail2ban-ui/internal/config"
+)
+
+// AgentConnector connects to a remote fail2ban-agent via HTTP API.
+type AgentConnector struct {
+	server config.Fail2banServer
+	base   *url.URL
+	client *http.Client
+}
+
+// NewAgentConnector constructs a new AgentConnector.
+func NewAgentConnector(server config.Fail2banServer) (Connector, error) {
+	if server.AgentURL == "" {
+		return nil, fmt.Errorf("agentUrl is required for agent connector")
+	}
+	if server.AgentSecret == "" {
+		return nil, fmt.Errorf("agentSecret is required for agent connector")
+	}
+	parsed, err := url.Parse(server.AgentURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid agentUrl: %w", err)
+	}
+	if parsed.Scheme == "" {
+		parsed.Scheme = "https"
+	}
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+	conn := &AgentConnector{
+		server: server,
+		base:   parsed,
+		client: client,
+	}
+	if err := conn.ensureAction(context.Background()); err != nil {
+		fmt.Printf("warning: failed to ensure agent action for %s: %v\n", server.Name, err)
+	}
+	return conn, nil
+}
+
+func (ac *AgentConnector) ID() string {
+	return ac.server.ID
+}
+
+func (ac *AgentConnector) Server() config.Fail2banServer {
+	return ac.server
+}
+
+func (ac *AgentConnector) ensureAction(ctx context.Context) error {
+	payload := map[string]any{
+		"name":        "ui-custom-action",
+		"config":      config.BuildFail2banActionConfig(config.GetCallbackURL()),
+		"callbackUrl": config.GetCallbackURL(),
+		"setDefault":  true,
+	}
+	return ac.put(ctx, "/v1/actions/ui-custom", payload, nil)
+}
+
+func (ac *AgentConnector) GetJailInfos(ctx context.Context) ([]JailInfo, error) {
+	var resp struct {
+		Jails []JailInfo `json:"jails"`
+	}
+	if err := ac.get(ctx, "/v1/jails", &resp); err != nil {
+		return nil, err
+	}
+	return resp.Jails, nil
+}
+
+func (ac *AgentConnector) GetBannedIPs(ctx context.Context, jail string) ([]string, error) {
+	var resp struct {
+		Jail        string   `json:"jail"`
+		BannedIPs   []string `json:"bannedIPs"`
+		TotalBanned int      `json:"totalBanned"`
+	}
+	if err := ac.get(ctx, fmt.Sprintf("/v1/jails/%s", url.PathEscape(jail)), &resp); err != nil {
+		return nil, err
+	}
+	if len(resp.BannedIPs) > 0 {
+		return resp.BannedIPs, nil
+	}
+	return []string{}, nil
+}
+
+func (ac *AgentConnector) UnbanIP(ctx context.Context, jail, ip string) error {
+	payload := map[string]string{"ip": ip}
+	return ac.post(ctx, fmt.Sprintf("/v1/jails/%s/unban", url.PathEscape(jail)), payload, nil)
+}
+
+func (ac *AgentConnector) Reload(ctx context.Context) error {
+	return ac.post(ctx, "/v1/actions/reload", nil, nil)
+}
+
+func (ac *AgentConnector) Restart(ctx context.Context) error {
+	return ac.post(ctx, "/v1/actions/restart", nil, nil)
+}
+
+func (ac *AgentConnector) GetFilterConfig(ctx context.Context, jail string) (string, error) {
+	var resp struct {
+		Config string `json:"config"`
+	}
+	if err := ac.get(ctx, fmt.Sprintf("/v1/filters/%s", url.PathEscape(jail)), &resp); err != nil {
+		return "", err
+	}
+	return resp.Config, nil
+}
+
+func (ac *AgentConnector) SetFilterConfig(ctx context.Context, jail, content string) error {
+	payload := map[string]string{"config": content}
+	return ac.put(ctx, fmt.Sprintf("/v1/filters/%s", url.PathEscape(jail)), payload, nil)
+}
+
+func (ac *AgentConnector) FetchBanEvents(ctx context.Context, limit int) ([]BanEvent, error) {
+	query := url.Values{}
+	if limit > 0 {
+		query.Set("limit", strconv.Itoa(limit))
+	}
+	var resp struct {
+		Events []struct {
+			IP        string `json:"ip"`
+			Jail      string `json:"jail"`
+			Hostname  string `json:"hostname"`
+			Failures  string `json:"failures"`
+			Whois     string `json:"whois"`
+			Logs      string `json:"logs"`
+			Timestamp string `json:"timestamp"`
+		} `json:"events"`
+	}
+	endpoint := "/v1/events"
+	if encoded := query.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
+	if err := ac.get(ctx, endpoint, &resp); err != nil {
+		return nil, err
+	}
+	result := make([]BanEvent, 0, len(resp.Events))
+	for _, evt := range resp.Events {
+		ts, err := time.Parse(time.RFC3339, evt.Timestamp)
+		if err != nil {
+			ts = time.Now()
+		}
+		result = append(result, BanEvent{
+			Time:    ts,
+			Jail:    evt.Jail,
+			IP:      evt.IP,
+			LogLine: fmt.Sprintf("%s %s", evt.Hostname, evt.Failures),
+		})
+	}
+	return result, nil
+}
+
+func (ac *AgentConnector) get(ctx context.Context, endpoint string, out any) error {
+	req, err := ac.newRequest(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	return ac.do(req, out)
+}
+
+func (ac *AgentConnector) post(ctx context.Context, endpoint string, payload any, out any) error {
+	req, err := ac.newRequest(ctx, http.MethodPost, endpoint, payload)
+	if err != nil {
+		return err
+	}
+	return ac.do(req, out)
+}
+
+func (ac *AgentConnector) put(ctx context.Context, endpoint string, payload any, out any) error {
+	req, err := ac.newRequest(ctx, http.MethodPut, endpoint, payload)
+	if err != nil {
+		return err
+	}
+	return ac.do(req, out)
+}
+
+func (ac *AgentConnector) newRequest(ctx context.Context, method, endpoint string, payload any) (*http.Request, error) {
+	u := *ac.base
+	u.Path = path.Join(ac.base.Path, strings.TrimPrefix(endpoint, "/"))
+
+	var body io.Reader
+	if payload != nil {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(data)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-F2B-Token", ac.server.AgentSecret)
+	return req, nil
+}
+
+func (ac *AgentConnector) do(req *http.Request, out any) error {
+	settingsSnapshot := config.GetSettings()
+	if settingsSnapshot.Debug {
+		config.DebugLog("Agent request [%s]: %s %s", ac.server.Name, req.Method, req.URL.String())
+	}
+
+	resp, err := ac.client.Do(req)
+	if err != nil {
+		if settingsSnapshot.Debug {
+			config.DebugLog("Agent request error [%s]: %v", ac.server.Name, err)
+		}
+		return fmt.Errorf("agent request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return err
+	}
+	trimmed := strings.TrimSpace(string(data))
+
+	if settingsSnapshot.Debug {
+		config.DebugLog("Agent response [%s]: %s | %s", ac.server.Name, resp.Status, trimmed)
+	}
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("agent request failed: %s (%s)", resp.Status, trimmed)
+	}
+
+	if out == nil {
+		return nil
+	}
+
+	if len(trimmed) == 0 {
+		return nil
+	}
+	return json.Unmarshal(data, out)
+}
+
+// GetAllJails implements Connector.
+func (ac *AgentConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
+	var resp struct {
+		Jails []JailInfo `json:"jails"`
+	}
+	if err := ac.get(ctx, "/v1/jails/all", &resp); err != nil {
+		return nil, err
+	}
+	return resp.Jails, nil
+}
+
+// UpdateJailEnabledStates implements Connector.
+func (ac *AgentConnector) UpdateJailEnabledStates(ctx context.Context, updates map[string]bool) error {
+	return ac.post(ctx, "/v1/jails/update-enabled", updates, nil)
+}
+
+// GetFilters implements Connector.
+func (ac *AgentConnector) GetFilters(ctx context.Context) ([]string, error) {
+	var resp struct {
+		Filters []string `json:"filters"`
+	}
+	if err := ac.get(ctx, "/v1/filters", &resp); err != nil {
+		return nil, err
+	}
+	return resp.Filters, nil
+}
+
+// TestFilter implements Connector.
+func (ac *AgentConnector) TestFilter(ctx context.Context, filterName string, logLines []string) ([]string, error) {
+	payload := map[string]any{
+		"filterName": filterName,
+		"logLines":   logLines,
+	}
+	var resp struct {
+		Matches []string `json:"matches"`
+	}
+	if err := ac.post(ctx, "/v1/filters/test", payload, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Matches, nil
+}
