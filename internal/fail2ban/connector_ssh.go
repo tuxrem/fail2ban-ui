@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -267,6 +268,14 @@ func (sc *SSHConnector) runRemoteCommand(ctx context.Context, command []string) 
 
 func (sc *SSHConnector) buildSSHArgs(command []string) []string {
 	args := []string{"-o", "BatchMode=yes"}
+	// In containerized environments, disable strict host key checking
+	if _, container := os.LookupEnv("CONTAINER"); container {
+		args = append(args,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "LogLevel=ERROR",
+		)
+	}
 	if sc.server.SSHKeyPath != "" {
 		args = append(args, "-i", sc.server.SSHKeyPath)
 	}
