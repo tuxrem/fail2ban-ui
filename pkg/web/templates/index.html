@@ -136,6 +136,48 @@
       padding: 0.1em 0.2em;
       border-radius: 0.25em;
     }
+
+    /* Toast notifications */
+    #toast-container {
+      position: fixed;
+      top: 1.5rem;
+      right: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 10000;
+      pointer-events: none;
+    }
+
+    .toast {
+      min-width: 240px;
+      max-width: 360px;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      color: #fff;
+      font-weight: 500;
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast-success {
+      background-color: #047857;
+    }
+
+    .toast-error {
+      background-color: #b91c1c;
+    }
+
+    .toast-info {
+      background-color: #1d4ed8;
+    }
   </style>
 </head>
 
@@ -153,6 +195,8 @@
       <button class="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors" onclick="restartFail2ban()" data-i18n="restart_banner.button">Restart Service</button>
     </div>
   </div>
+
+  <div id="toast-container"></div>
 
   <!-- ******************************************************************* -->
   <!--                          Navigation START                           -->
@@ -821,7 +865,7 @@
         getTranslationsSettingsOnPageload()
       ])
         .then(function() {
-          checkRestartNeeded();
+          updateRestartBanner();
           return refreshData({ silent: true });
         })
         .catch(function(err) {
@@ -852,6 +896,25 @@
         overlay.classList.remove('show');    // Start fade-out
         setTimeout(() => overlay.style.setProperty('display', 'none', 'important'), 400);
       }
+    }
+
+    function showToast(message, type) {
+      var container = document.getElementById('toast-container');
+      if (!container || !message) return;
+      var toast = document.createElement('div');
+      var variant = type || 'info';
+      toast.className = 'toast toast-' + variant;
+      toast.textContent = message;
+      container.appendChild(toast);
+      requestAnimationFrame(function() {
+        toast.classList.add('show');
+      });
+      setTimeout(function() {
+        toast.classList.remove('show');
+        setTimeout(function() {
+          toast.remove();
+        }, 300);
+      }, 5000);
     }
 
     // Fetch and display own external IP for webUI
@@ -905,18 +968,14 @@
       }
     }
 
-    // Check if there is still a reload of the fail2ban service needed
-    function checkRestartNeeded() {
-      fetch('/api/settings')
-        .then(res => res.json())
-        .then(data => {
-          if (data.restartNeeded) {
-            document.getElementById('restartBanner').style.display = 'block';
-          } else {
-            document.getElementById('restartBanner').style.display = 'none';
-          }
-        })
-        .catch(err => console.error('Error checking restartNeeded:', err));
+    function updateRestartBanner() {
+      var banner = document.getElementById('restartBanner');
+      if (!banner) return;
+      if (currentServer && currentServer.restartNeeded) {
+        banner.style.display = 'block';
+      } else {
+        banner.style.display = 'none';
+      }
     }
 
     // Load dynamically the other pages when navigating in nav
@@ -997,6 +1056,7 @@
           }
           renderServerSelector();
           renderServerSubtitle();
+          updateRestartBanner();
         })
         .catch(function(err) {
           console.error('Error loading servers:', err);
@@ -1005,6 +1065,7 @@
           currentServer = null;
           renderServerSelector();
           renderServerSubtitle();
+          updateRestartBanner();
         });
     }
 
@@ -1088,6 +1149,7 @@
       }
       renderServerSelector();
       renderServerSubtitle();
+      updateRestartBanner();
       refreshData();
     }
 
@@ -1643,10 +1705,10 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert('Error saving server: ' + data.error);
+            showToast('Error saving server: ' + (data.error || 'Unknown error'), 'error');
             return;
           }
-          alert(t('servers.form.success', 'Server saved successfully.'));
+          showToast(t('servers.form.success', 'Server saved successfully.'), 'success');
           var saved = data.server || {};
           currentServerId = saved.id || currentServerId;
           return loadServers().then(function() {
@@ -1660,7 +1722,7 @@
           });
         })
         .catch(function(err) {
-          alert('Error saving server: ' + err);
+          showToast('Error saving server: ' + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1733,7 +1795,7 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert('Error saving server: ' + data.error);
+            showToast('Error saving server: ' + (data.error || 'Unknown error'), 'error');
             return;
           }
           if (!enabled && currentServerId === serverId) {
@@ -1748,7 +1810,7 @@
           });
         })
         .catch(function(err) {
-          alert('Error saving server: ' + err);
+          showToast('Error saving server: ' + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1764,13 +1826,13 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert(t(data.messageKey || 'servers.actions.test_failure', data.error));
+            showToast(t(data.messageKey || 'servers.actions.test_failure', data.error), 'error');
             return;
           }
-          alert(t(data.messageKey || 'servers.actions.test_success', data.message || 'Connection successful'));
+          showToast(t(data.messageKey || 'servers.actions.test_success', data.message || 'Connection successful'), 'success');
         })
         .catch(function(err) {
-          alert(t('servers.actions.test_failure', 'Connection failed') + ': ' + err);
+          showToast(t('servers.actions.test_failure', 'Connection failed') + ': ' + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1784,7 +1846,7 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert('Error deleting server: ' + data.error);
+            showToast('Error deleting server: ' + (data.error || 'Unknown error'), 'error');
             return;
           }
           if (currentServerId === serverId) {
@@ -1796,10 +1858,12 @@
             renderServerSelector();
             renderServerSubtitle();
             return refreshData({ silent: true });
+          }).then(function() {
+            showToast(t('servers.actions.delete_success', 'Server removed'), 'success');
           });
         })
         .catch(function(err) {
-          alert('Error deleting server: ' + err);
+          showToast('Error deleting server: ' + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1812,7 +1876,7 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert('Error setting default server: ' + data.error);
+            showToast('Error setting default server: ' + (data.error || 'Unknown error'), 'error');
             return;
           }
           currentServerId = data.server ? data.server.id : serverId;
@@ -1821,10 +1885,12 @@
             renderServerSelector();
             renderServerSubtitle();
             return refreshData({ silent: true });
+          }).then(function() {
+            showToast(t('servers.actions.set_default_success', 'Server set as default'), 'success');
           });
         })
         .catch(function(err) {
-          alert('Error setting default server: ' + err);
+          showToast('Error setting default server: ' + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1910,14 +1976,14 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert("Error: " + data.error);
+            showToast("Error unbanning IP: " + data.error, 'error');
           } else {
-            alert(data.message || "IP unbanned successfully");
+            showToast(data.message || "IP unbanned successfully", 'success');
           }
           return refreshData({ silent: true });
         })
         .catch(function(err) {
-          alert("Error: " + err);
+          showToast("Error: " + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1943,14 +2009,14 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert("Error loading config: " + data.error);
-          } else {
-            textArea.value = data.config;
-            openModal('jailConfigModal');
+            showToast("Error loading config: " + data.error, 'error');
+            return;
           }
+          textArea.value = data.config;
+          openModal('jailConfigModal');
         })
         .catch(function(err) {
-          alert("Error: " + err);
+          showToast("Error: " + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1971,15 +2037,15 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert("Error saving config: " + data.error);
-          } else {
-            console.log("Filter saved successfully. Restart needed? " + data.restartNeeded);
-            closeModal('jailConfigModal');
-            document.getElementById('restartBanner').style.display = 'block';
+            showToast("Error saving config: " + data.error, 'error');
+            return;
           }
+          closeModal('jailConfigModal');
+          showToast(t('filter_debug.save_success', 'Filter saved and reloaded'), 'success');
+          return refreshData({ silent: true });
         })
         .catch(function(err) {
-          alert("Error: " + err);
+          showToast("Error: " + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -1990,7 +2056,7 @@
     // Fetches the full-list of all jails (from /jails/manage) and builds a list with toggle switches.
     function openManageJailsModal() {
       if (!currentServerId) {
-        alert(t('servers.selector.none', 'Please add and select a Fail2ban server first.'));
+        showToast(t('servers.selector.none', 'Please add and select a Fail2ban server first.'), 'info');
         return;
       }
       showLoading(true);
@@ -2000,7 +2066,7 @@
         .then(res => res.json())
         .then(data => {
           if (!data.jails?.length) {
-            alert("No jails found.");
+            showToast("No jails found for this server.", 'info');
             return;
           }
 
@@ -2039,7 +2105,7 @@
           document.getElementById('jailsList').innerHTML = html;
           openModal('manageJailsModal');
         })
-        .catch(err => alert("Error fetching jails: " + err))
+        .catch(err => showToast("Error fetching jails: " + err, 'error'))
         .finally(() => showLoading(false));
     }
 
@@ -2063,14 +2129,17 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert("Error saving jail settings: " + data.error);
-          } else {
-            // A restart of fail2ban is needed, to enable or disable jails - a reload is not enough
-            document.getElementById('restartBanner').style.display = 'block';
+            showToast("Error saving jail settings: " + data.error, 'error');
+            return;
           }
+          showToast(t('jails.manage.save_success', 'Jail settings saved. Please restart Fail2ban.'), 'info');
+          return loadServers().then(function() {
+            updateRestartBanner();
+            return refreshData({ silent: true });
+          });
         })
         .catch(function(err) {
-          alert("Error: " + err);
+          showToast("Error: " + err, 'error');
         })
         .finally(function() {
           showLoading(false);
@@ -2126,7 +2195,7 @@
           document.getElementById('ignoreIP').value = data.ignoreip || '';
         })
         .catch(err => {
-          alert('Error loading settings: ' + err);
+          showToast('Error loading settings: ' + err, 'error');
         })
         .finally(() => showLoading(false));
     }
@@ -2173,17 +2242,20 @@
         .then(res => res.json())
         .then(data => {
           if (data.error) {
-            alert('Error saving settings: ' + data.error + data.details);
+            showToast('Error saving settings: ' + (data.error + (data.details || '')), 'error');
           } else {
             var selectedLang = $('#languageSelect').val();
             loadTranslations(selectedLang);
             console.log("Settings saved successfully. Restart needed? " + data.restartNeeded);
+            showToast(t('settings.save_success', 'Settings saved'), 'success');
             if (data.restartNeeded) {
-              document.getElementById('restartBanner').style.display = 'block';
+              loadServers().then(function() {
+                updateRestartBanner();
+              });
             }
           }
         })
-        .catch(err => alert('Error: ' + err))
+        .catch(err => showToast('Error saving settings: ' + err, 'error'))
         .finally(() => showLoading(false));
     }
 
@@ -2199,7 +2271,7 @@
         .then(res => res.json())
         .then(data => {
           if (data.error) {
-            alert('Error loading filters: ' + data.error);
+            showToast('Error loading filters: ' + data.error, 'error');
             return;
           }
           const select = document.getElementById('filterSelect');
@@ -2229,7 +2301,7 @@
           }
         })
         .catch(err => {
-          alert('Error loading filters: ' + err);
+          showToast('Error loading filters: ' + err, 'error');
         })
         .finally(() => showLoading(false));
     }
@@ -2244,12 +2316,12 @@
         .then(res => res.json())
         .then(data => {
           if (data.error) {
-            alert('Error sending test email: ' + data.error);
+            showToast('Error sending test email: ' + data.error, 'error');
           } else {
-            alert('Test email sent successfully!');
+            showToast('Test email sent successfully!', 'success');
           }
         })
-        .catch(error => alert('Error: ' + error))
+        .catch(error => showToast('Error sending test email: ' + error, 'error'))
         .finally(() => showLoading(false));
     }
 
@@ -2259,7 +2331,7 @@
       const lines = document.getElementById('logLinesTextarea').value.split('\n');
       
       if (!filterName) {
-        alert('Please select a filter.');
+        showToast('Please select a filter.', 'info');
         return;
       }
 
@@ -2275,13 +2347,13 @@
         .then(res => res.json())
         .then(data => {
           if (data.error) {
-            alert('Error: ' + data.error);
+            showToast('Error testing filter: ' + data.error, 'error');
             return;
           }
           renderTestResults(data.matches);
         })
         .catch(err => {
-          alert('Error: ' + err);
+          showToast('Error testing filter: ' + err, 'error');
         })
         .finally(() => showLoading(false));
     }
@@ -2332,14 +2404,17 @@
         .then(function(res) { return res.json(); })
         .then(function(data) {
           if (data.error) {
-            alert("Error: " + data.error);
-          } else {
-            document.getElementById('restartBanner').style.display = 'none';
-            return refreshData({ silent: true });
+            showToast("Failed to restart Fail2ban: " + data.error, 'error');
+            return;
           }
+          return loadServers().then(function() {
+            updateRestartBanner();
+            showToast(t('restart_banner.success', 'Fail2ban restart triggered'), 'success');
+            return refreshData({ silent: true });
+          });
         })
         .catch(function(err) {
-          alert("Error: " + err);
+          showToast("Failed to restart Fail2ban: " + err, 'error');
         })
         .finally(function() {
           showLoading(false);

@@ -107,9 +107,13 @@ podman exec -it fail2ban-ui ps aux
 
 ### SSH Connection Issues
 - Verify SSH key authentication works from the host
-- Ensure passwordless sudo is configured on the remote server
+- Ensure the SSH user has proper permissions on the remote server:
+  - Sudo access for `fail2ban-client` and `systemctl restart fail2ban` (configured via sudoers)
+  - File system ACLs on `/etc/fail2ban` for configuration file access
+  - See the main README for recommended setup with service account and ACLs
 - Check debug mode in settings for detailed error messages
 - The container needs network access to remote SSH servers
+- SSH keys should be placed in `/config/.ssh` directory inside the container
 
 ## Contact & Support
 For issues, contributions, or feature requests, visit our GitHub repository:  

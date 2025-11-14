@@ -324,12 +324,21 @@ func SetDefaultServerHandler(c *gin.Context) {
 
 // ListSSHKeysHandler returns SSH keys available on the UI host.
 func ListSSHKeysHandler(c *gin.Context) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	var dir string
+	// Check if running inside a container
+	if _, container := os.LookupEnv("CONTAINER"); container {
+		// In container, check /config/.ssh
+		dir = "/config/.ssh"
+	} else {
+		// On host, check ~/.ssh
+		home, err := os.UserHomeDir()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		dir = filepath.Join(home, ".ssh")
 	}
-	dir := filepath.Join(home, ".ssh")
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -507,7 +516,12 @@ func GetJailFilterConfigHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("GetJailFilterConfigHandler called (handlers.go)") // entry point
 	jail := c.Param("jail")
-	cfg, err := fail2ban.GetFilterConfig(jail)
+	conn, err := resolveConnector(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	cfg, err := conn.GetFilterConfig(c.Request.Context(), jail)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -523,6 +537,11 @@ func SetJailFilterConfigHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("SetJailFilterConfigHandler called (handlers.go)") // entry point
 	jail := c.Param("jail")
+	conn, err := resolveConnector(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Parse JSON body (containing the new filter content)
 	var req struct {
@@ -533,25 +552,17 @@ func SetJailFilterConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// Write the filter config file to /etc/fail2ban/filter.d/<jail>.conf
-	if err := fail2ban.SetFilterConfig(jail, req.Config); err != nil {
+	if err := conn.SetFilterConfig(c.Request.Context(), jail, req.Config); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Mark reload needed in our UI settings
-	//	if err := config.MarkRestartNeeded(); err != nil {
-	//		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	//		return
-	//	}
+	if err := conn.Reload(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "filter saved but reload failed: " + err.Error()})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "jail config updated"})
-
-	// Return a simple JSON response without forcing a blocking alert
-	//	c.JSON(http.StatusOK, gin.H{
-	//		"message":      "Filter updated, reload needed",
-	//		"restartNeeded": true,
-	//	})
+	c.JSON(http.StatusOK, gin.H{"message": "Filter updated and fail2ban reloaded"})
 }
 
 // ManageJailsHandler returns a list of all jails (from jail.local and jail.d)
@@ -593,7 +604,7 @@ func UpdateJailManagementHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update jail settings: " + err.Error()})
 		return
 	}
-	if err := config.MarkRestartNeeded(); err != nil {
+	if err := config.MarkRestartNeeded(conn.Server().ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -730,17 +741,18 @@ func RestartFail2banHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("ApplyFail2banSettings called (handlers.go)") // entry point
 
-	// First we write our new settings to /etc/fail2ban/jail.local
-	//	if err := fail2ban.ApplyFail2banSettings("/etc/fail2ban/jail.local"); err != nil {
-	//		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-	//		return
-	//	}
+	conn, err := resolveConnector(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	server := conn.Server()
 
 	// Attempt to restart the fail2ban service.
-	restartErr := fail2ban.RestartFail2ban()
+	restartErr := fail2ban.RestartFail2ban(server.ID)
 	if restartErr != nil {
 		// Check if running inside a container.
-		if _, container := os.LookupEnv("CONTAINER"); container {
+		if _, container := os.LookupEnv("CONTAINER"); container && server.Type == "local" {
 			// In a container, the restart command may fail (since fail2ban runs on the host).
 			// Log the error and continue, so we can mark the restart as done.
 			log.Printf("Warning: restart failed inside container (expected behavior): %v", restartErr)
@@ -752,7 +764,7 @@ func RestartFail2banHandler(c *gin.Context) {
 	}
 
 	// Only call MarkRestartDone if we either successfully restarted the service or we are in a container.
-	if err := config.MarkRestartDone(); err != nil {
+	if err := config.MarkRestartDone(server.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

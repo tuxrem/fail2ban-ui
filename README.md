@@ -141,14 +141,34 @@ podman run -d \
    - **Host**: IP address or hostname
    - **Port**: SSH port (default: 22)
    - **SSH User**: Username for SSH connection
-   - **SSH Key**: Select an SSH key from your `~/.ssh/` directory
+   - **SSH Key**: Select an SSH key from your `~/.ssh/` directory (or `/config/.ssh/` when running in a container)
 5. Click **Test Connection** to verify before saving
 6. The UI will automatically deploy the custom action for ban notifications
 
 **Requirements for SSH connections:**
 - SSH key-based authentication (passwordless login)
-- Passwordless sudo access to `fail2ban-client` and Fail2ban configuration files
 - Network connectivity from UI host to remote server
+- The SSH user must have:
+  - Sudo access to run `systemctl restart fail2ban` and `/usr/bin/fail2ban-client` (configured via sudoers)
+  - File system ACLs on `/etc/fail2ban` for read/write access to configuration files (no sudo needed for file operations)
+
+**Recommended SSH setup (using service account with ACLs):**
+```bash
+# Create service account
+sudo useradd -r -s /bin/bash sa_fail2ban
+
+# Configure sudoers for fail2ban-client and systemctl restart
+sudo visudo -f /etc/sudoers.d/fail2ban-ui
+# Add:
+sa_fail2ban ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client *
+sa_fail2ban ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart fail2ban
+
+# Set ACLs for /etc/fail2ban directory
+sudo setfacl -Rm u:sa_fail2ban:rwX /etc/fail2ban
+sudo setfacl -dRm u:sa_fail2ban:rwX /etc/fail2ban
+```
+
+This setup provides fine-grained permissions without requiring full passwordless sudo access.
 
 #### **API Agent Server** (Future)
 - API agent support is planned for future releases
@@ -158,7 +178,10 @@ podman run -d \
 
 ## **🔒 Security Considerations**
 
-- Fail2Ban-UI requires **root privileges** or **passwordless sudo** to interact with Fail2Ban sockets.  
+- Fail2Ban-UI requires **root privileges** or **passwordless sudo** to interact with Fail2Ban sockets (for local connections).  
+- For SSH connections, use a **dedicated service account** with:
+  - **Limited sudo access** (only for `fail2ban-client` and `systemctl restart fail2ban`)
+  - **File system ACLs** on `/etc/fail2ban` for configuration file access (more secure than full sudo)
 - **Restrict access** using **firewall rules** or a **reverse proxy** with authentication.  
 - Ensure that Fail2Ban logs/configs **aren't exposed publicly**.  
 - For SSH connections, use **SSH key-based authentication** and restrict SSH access.
@@ -200,10 +223,15 @@ semodule -i fail2ban-container-client.pp
   ```bash
   ssh -i ~/.ssh/your_key user@remote-host
   ```
-- Ensure passwordless sudo is configured:
-  ```bash
-  sudo -l
-  ```
+- Ensure the SSH user has proper permissions:
+  - Check sudo access for `fail2ban-client` and `systemctl restart fail2ban`:
+    ```bash
+    sudo -l -U sa_fail2ban
+    ```
+  - Verify ACLs on `/etc/fail2ban`:
+    ```bash
+    getfacl /etc/fail2ban
+    ```
 - Check debug mode in settings for detailed error messages
 - Verify the SSH user has access to `/var/run/fail2ban/fail2ban.sock`
 

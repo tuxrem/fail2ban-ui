@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strconv"
@@ -177,7 +178,7 @@ func (sc *SSHConnector) Restart(ctx context.Context) error {
 
 func (sc *SSHConnector) GetFilterConfig(ctx context.Context, jail string) (string, error) {
 	path := fmt.Sprintf("/etc/fail2ban/filter.d/%s.conf", jail)
-	out, err := sc.runRemoteCommand(ctx, []string{"sudo", "cat", path})
+	out, err := sc.runRemoteCommand(ctx, []string{"cat", path})
 	if err != nil {
 		return "", fmt.Errorf("failed to read remote filter config: %w", err)
 	}
@@ -186,7 +187,7 @@ func (sc *SSHConnector) GetFilterConfig(ctx context.Context, jail string) (strin
 
 func (sc *SSHConnector) SetFilterConfig(ctx context.Context, jail, content string) error {
 	path := fmt.Sprintf("/etc/fail2ban/filter.d/%s.conf", jail)
-	cmd := fmt.Sprintf("cat <<'EOF' | sudo tee %s >/dev/null\n%s\nEOF", path, content)
+	cmd := fmt.Sprintf("cat <<'EOF' | tee %s >/dev/null\n%s\nEOF", path, content)
 	_, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
 	return err
 }
@@ -198,12 +199,12 @@ func (sc *SSHConnector) FetchBanEvents(ctx context.Context, limit int) ([]BanEve
 
 func (sc *SSHConnector) ensureAction(ctx context.Context) error {
 	callbackURL := config.GetCallbackURL()
-	actionConfig := config.BuildFail2banActionConfig(callbackURL)
+	actionConfig := config.BuildFail2banActionConfig(callbackURL, sc.server.ID)
 	payload := base64.StdEncoding.EncodeToString([]byte(actionConfig))
 	script := strings.ReplaceAll(sshEnsureActionScript, "__PAYLOAD__", payload)
 	// Base64 encode the entire script to avoid shell escaping issues
 	scriptB64 := base64.StdEncoding.EncodeToString([]byte(script))
-	cmd := fmt.Sprintf("echo %s | base64 -d | sudo bash", scriptB64)
+	cmd := fmt.Sprintf("echo %s | base64 -d | bash", scriptB64)
 	_, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
 	return err
 }
@@ -267,6 +268,14 @@ func (sc *SSHConnector) runRemoteCommand(ctx context.Context, command []string) 
 
 func (sc *SSHConnector) buildSSHArgs(command []string) []string {
 	args := []string{"-o", "BatchMode=yes"}
+	// In containerized environments, disable strict host key checking
+	if _, container := os.LookupEnv("CONTAINER"); container {
+		args = append(args,
+			"-o", "StrictHostKeyChecking=no",
+			"-o", "UserKnownHostsFile=/dev/null",
+			"-o", "LogLevel=ERROR",
+		)
+	}
 	if sc.server.SSHKeyPath != "" {
 		args = append(args, "-i", sc.server.SSHKeyPath)
 	}
@@ -288,14 +297,14 @@ func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
 	var allJails []JailInfo
 
 	// Parse jail.local
-	jailLocalContent, err := sc.runRemoteCommand(ctx, []string{"sudo", "cat", "/etc/fail2ban/jail.local"})
+	jailLocalContent, err := sc.runRemoteCommand(ctx, []string{"cat", "/etc/fail2ban/jail.local"})
 	if err == nil {
 		jails := parseJailConfigContent(jailLocalContent)
 		allJails = append(allJails, jails...)
 	}
 
 	// Parse jail.d directory
-	jailDCmd := "sudo find /etc/fail2ban/jail.d -maxdepth 1 -name '*.conf' -type f"
+	jailDCmd := "find /etc/fail2ban/jail.d -maxdepth 1 -name '*.conf' -type f"
 	jailDList, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", jailDCmd})
 	if err == nil && jailDList != "" {
 		for _, file := range strings.Split(jailDList, "\n") {
@@ -303,7 +312,7 @@ func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
 			if file == "" {
 				continue
 			}
-			content, err := sc.runRemoteCommand(ctx, []string{"sudo", "cat", file})
+			content, err := sc.runRemoteCommand(ctx, []string{"cat", file})
 			if err == nil {
 				jails := parseJailConfigContent(content)
 				allJails = append(allJails, jails...)
@@ -317,7 +326,7 @@ func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
 // UpdateJailEnabledStates implements Connector.
 func (sc *SSHConnector) UpdateJailEnabledStates(ctx context.Context, updates map[string]bool) error {
 	// Read current jail.local
-	content, err := sc.runRemoteCommand(ctx, []string{"sudo", "cat", "/etc/fail2ban/jail.local"})
+	content, err := sc.runRemoteCommand(ctx, []string{"cat", "/etc/fail2ban/jail.local"})
 	if err != nil {
 		return fmt.Errorf("failed to read jail.local: %w", err)
 	}
@@ -345,16 +354,15 @@ func (sc *SSHConnector) UpdateJailEnabledStates(ctx context.Context, updates map
 
 	// Write back
 	newContent := strings.Join(outputLines, "\n")
-	cmd := fmt.Sprintf("cat <<'EOF' | sudo tee /etc/fail2ban/jail.local >/dev/null\n%s\nEOF", newContent)
+	cmd := fmt.Sprintf("cat <<'EOF' | tee /etc/fail2ban/jail.local >/dev/null\n%s\nEOF", newContent)
 	_, err = sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
 	return err
 }
 
 // GetFilters implements Connector.
 func (sc *SSHConnector) GetFilters(ctx context.Context) ([]string, error) {
-	// Use find with sudo - execute sudo separately to avoid shell issues
-	// First try with sudo, if that fails, the error will be clear
-	list, err := sc.runRemoteCommand(ctx, []string{"sudo", "find", "/etc/fail2ban/filter.d", "-maxdepth", "1", "-type", "f"})
+	// Use find to list filter files
+	list, err := sc.runRemoteCommand(ctx, []string{"find", "/etc/fail2ban/filter.d", "-maxdepth", "1", "-type", "f"})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list filters: %w", err)
 	}
@@ -422,11 +430,10 @@ func (sc *SSHConnector) TestFilter(ctx context.Context, filterName string, logLi
 			continue
 		}
 		// Use fail2ban-regex: log line as string, filter file path
-		// Use sudo -s to run a shell that executes the piped command
 		escapedLine := strconv.Quote(logLine)
 		escapedPath := strconv.Quote(filterPath)
 		cmd := fmt.Sprintf("echo %s | fail2ban-regex - %s", escapedLine, escapedPath)
-		out, err := sc.runRemoteCommand(ctx, []string{"sudo", "sh", "-c", cmd})
+		out, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", cmd})
 		// fail2ban-regex returns success (exit 0) if the line matches
 		// Look for "Lines: 1 lines, 0 ignored, 1 matched" or similar success indicators
 		if err == nil {
