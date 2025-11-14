@@ -80,9 +80,18 @@ func ReloadFail2ban() error {
 	return conn.Reload(context.Background())
 }
 
-// RestartFail2ban restarts the Fail2ban service using the default connector.
-func RestartFail2ban() error {
-	conn, err := GetManager().DefaultConnector()
+// RestartFail2ban restarts the Fail2ban service using the provided server or default connector.
+func RestartFail2ban(serverID string) error {
+	manager := GetManager()
+	var (
+		conn Connector
+		err  error
+	)
+	if serverID != "" {
+		conn, err = manager.Connector(serverID)
+	} else {
+		conn, err = manager.DefaultConnector()
+	}
 	if err != nil {
 		return err
 	}

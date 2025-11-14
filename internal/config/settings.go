@@ -77,6 +77,7 @@ const (
 	jailDFile                 = "/etc/fail2ban/jail.d/ui-custom-action.conf"
 	actionFile                = "/etc/fail2ban/action.d/ui-custom-action.conf"
 	actionCallbackPlaceholder = "__CALLBACK_URL__"
+	actionServerIDPlaceholder = "__SERVER_ID__"
 )
 
 const fail2banActionTemplate = `[INCLUDES]
@@ -95,13 +96,14 @@ norestored = 1
 
 actionban = /usr/bin/curl -X POST __CALLBACK_URL__/api/ban \
      -H "Content-Type: application/json" \
-     -d "$(jq -n --arg ip '<ip>' \
+     -d "$(jq -n --arg serverId '__SERVER_ID__' \
+                 --arg ip '<ip>' \
                  --arg jail '<name>' \
                  --arg hostname '<fq-hostname>' \
                  --arg failures '<failures>' \
                  --arg whois "$(whois <ip> || echo 'missing whois program')" \
                  --arg logs "$(tac <logpath> | grep <grepopts> -wF <ip>)" \
-                 '{ip: $ip, jail: $jail, hostname: $hostname, failures: $failures, whois: $whois, logs: $logs}')"
+                 '{serverId: $serverId, ip: $ip, jail: $jail, hostname: $hostname, failures: $failures, whois: $whois, logs: $logs}')"
 
 [Init]
 
@@ -128,23 +130,24 @@ var (
 
 // Fail2banServer represents a Fail2ban instance the UI can manage.
 type Fail2banServer struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Type        string    `json:"type"` // local, ssh, agent
-	Host        string    `json:"host,omitempty"`
-	Port        int       `json:"port,omitempty"`
-	SocketPath  string    `json:"socketPath,omitempty"`
-	LogPath     string    `json:"logPath,omitempty"`
-	SSHUser     string    `json:"sshUser,omitempty"`
-	SSHKeyPath  string    `json:"sshKeyPath,omitempty"`
-	AgentURL    string    `json:"agentUrl,omitempty"`
-	AgentSecret string    `json:"agentSecret,omitempty"`
-	Hostname    string    `json:"hostname,omitempty"`
-	Tags        []string  `json:"tags,omitempty"`
-	IsDefault   bool      `json:"isDefault"`
-	Enabled     bool      `json:"enabled"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"` // local, ssh, agent
+	Host          string    `json:"host,omitempty"`
+	Port          int       `json:"port,omitempty"`
+	SocketPath    string    `json:"socketPath,omitempty"`
+	LogPath       string    `json:"logPath,omitempty"`
+	SSHUser       string    `json:"sshUser,omitempty"`
+	SSHKeyPath    string    `json:"sshKeyPath,omitempty"`
+	AgentURL      string    `json:"agentUrl,omitempty"`
+	AgentSecret   string    `json:"agentSecret,omitempty"`
+	Hostname      string    `json:"hostname,omitempty"`
+	Tags          []string  `json:"tags,omitempty"`
+	IsDefault     bool      `json:"isDefault"`
+	Enabled       bool      `json:"enabled"`
+	RestartNeeded bool      `json:"restartNeeded"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 
 	enabledSet bool
 }
@@ -308,24 +311,25 @@ func applyServerRecordsLocked(records []storage.ServerRecord) {
 			_ = json.Unmarshal([]byte(rec.TagsJSON), &tags)
 		}
 		server := Fail2banServer{
-			ID:          rec.ID,
-			Name:        rec.Name,
-			Type:        rec.Type,
-			Host:        rec.Host,
-			Port:        rec.Port,
-			SocketPath:  rec.SocketPath,
-			LogPath:     rec.LogPath,
-			SSHUser:     rec.SSHUser,
-			SSHKeyPath:  rec.SSHKeyPath,
-			AgentURL:    rec.AgentURL,
-			AgentSecret: rec.AgentSecret,
-			Hostname:    rec.Hostname,
-			Tags:        tags,
-			IsDefault:   rec.IsDefault,
-			Enabled:     rec.Enabled,
-			CreatedAt:   rec.CreatedAt,
-			UpdatedAt:   rec.UpdatedAt,
-			enabledSet:  true,
+			ID:            rec.ID,
+			Name:          rec.Name,
+			Type:          rec.Type,
+			Host:          rec.Host,
+			Port:          rec.Port,
+			SocketPath:    rec.SocketPath,
+			LogPath:       rec.LogPath,
+			SSHUser:       rec.SSHUser,
+			SSHKeyPath:    rec.SSHKeyPath,
+			AgentURL:      rec.AgentURL,
+			AgentSecret:   rec.AgentSecret,
+			Hostname:      rec.Hostname,
+			Tags:          tags,
+			IsDefault:     rec.IsDefault,
+			Enabled:       rec.Enabled,
+			RestartNeeded: rec.NeedsRestart,
+			CreatedAt:     rec.CreatedAt,
+			UpdatedAt:     rec.UpdatedAt,
+			enabledSet:    true,
 		}
 		servers = append(servers, server)
 	}
@@ -384,23 +388,24 @@ func toServerRecordsLocked() ([]storage.ServerRecord, error) {
 			updatedAt = createdAt
 		}
 		records = append(records, storage.ServerRecord{
-			ID:          srv.ID,
-			Name:        srv.Name,
-			Type:        srv.Type,
-			Host:        srv.Host,
-			Port:        srv.Port,
-			SocketPath:  srv.SocketPath,
-			LogPath:     srv.LogPath,
-			SSHUser:     srv.SSHUser,
-			SSHKeyPath:  srv.SSHKeyPath,
-			AgentURL:    srv.AgentURL,
-			AgentSecret: srv.AgentSecret,
-			Hostname:    srv.Hostname,
-			TagsJSON:    string(tagBytes),
-			IsDefault:   srv.IsDefault,
-			Enabled:     srv.Enabled,
-			CreatedAt:   createdAt,
-			UpdatedAt:   updatedAt,
+			ID:           srv.ID,
+			Name:         srv.Name,
+			Type:         srv.Type,
+			Host:         srv.Host,
+			Port:         srv.Port,
+			SocketPath:   srv.SocketPath,
+			LogPath:      srv.LogPath,
+			SSHUser:      srv.SSHUser,
+			SSHKeyPath:   srv.SSHKeyPath,
+			AgentURL:     srv.AgentURL,
+			AgentSecret:  srv.AgentSecret,
+			Hostname:     srv.Hostname,
+			TagsJSON:     string(tagBytes),
+			IsDefault:    srv.IsDefault,
+			Enabled:      srv.Enabled,
+			NeedsRestart: srv.RestartNeeded,
+			CreatedAt:    createdAt,
+			UpdatedAt:    updatedAt,
 		})
 	}
 	return records, nil
@@ -563,6 +568,9 @@ func normalizeServersLocked() {
 			}
 		}
 		server.enabledSet = true
+		if !server.Enabled {
+			server.RestartNeeded = false
+		}
 		if server.IsDefault && !server.Enabled {
 			server.IsDefault = false
 		}
@@ -584,6 +592,8 @@ func normalizeServersLocked() {
 	sort.SliceStable(currentSettings.Servers, func(i, j int) bool {
 		return currentSettings.Servers[i].CreatedAt.Before(currentSettings.Servers[j].CreatedAt)
 	})
+
+	updateGlobalRestartFlagLocked()
 }
 
 func generateServerID() string {
@@ -595,7 +605,7 @@ func generateServerID() string {
 }
 
 // ensureFail2banActionFiles writes the local action files if Fail2ban is present.
-func ensureFail2banActionFiles(callbackURL string) error {
+func ensureFail2banActionFiles(callbackURL, serverID string) error {
 	DebugLog("----------------------------")
 	DebugLog("ensureFail2banActionFiles called (settings.go)")
 
@@ -609,7 +619,7 @@ func ensureFail2banActionFiles(callbackURL string) error {
 	if err := ensureJailDConfig(); err != nil {
 		return err
 	}
-	return writeFail2banAction(callbackURL)
+	return writeFail2banAction(callbackURL, serverID)
 }
 
 // setupGeoCustomAction checks and replaces the default action in jail.local with our from fail2ban-UI
@@ -725,14 +735,14 @@ action_mwlg = %(action_)s
 }
 
 // writeFail2banAction creates or updates the action file with the AlertCountries.
-func writeFail2banAction(callbackURL string) error {
+func writeFail2banAction(callbackURL, serverID string) error {
 	DebugLog("Running initial writeFail2banAction()") // entry point
 	DebugLog("----------------------------")
 	if err := os.MkdirAll(filepath.Dir(actionFile), 0o755); err != nil {
 		return fmt.Errorf("failed to ensure action.d directory: %w", err)
 	}
 
-	actionConfig := BuildFail2banActionConfig(callbackURL)
+	actionConfig := BuildFail2banActionConfig(callbackURL, serverID)
 	err := os.WriteFile(actionFile, []byte(actionConfig), 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write action file: %w", err)
@@ -751,12 +761,16 @@ func cloneServer(src Fail2banServer) Fail2banServer {
 	return dst
 }
 
-func BuildFail2banActionConfig(callbackURL string) string {
+func BuildFail2banActionConfig(callbackURL, serverID string) string {
 	trimmed := strings.TrimRight(strings.TrimSpace(callbackURL), "/")
 	if trimmed == "" {
 		trimmed = "http://127.0.0.1:8080"
 	}
-	return strings.ReplaceAll(fail2banActionTemplate, actionCallbackPlaceholder, trimmed)
+	if serverID == "" {
+		serverID = "local"
+	}
+	config := strings.ReplaceAll(fail2banActionTemplate, actionCallbackPlaceholder, trimmed)
+	return strings.ReplaceAll(config, actionServerIDPlaceholder, serverID)
 }
 
 func getCallbackURLLocked() string {
@@ -786,7 +800,7 @@ func EnsureLocalFail2banAction(server Fail2banServer) error {
 	settingsLock.RLock()
 	callbackURL := getCallbackURLLocked()
 	settingsLock.RUnlock()
-	return ensureFail2banActionFiles(callbackURL)
+	return ensureFail2banActionFiles(callbackURL, server.ID)
 }
 
 func serverByIDLocked(id string) (Fail2banServer, bool) {
@@ -934,6 +948,35 @@ func clearDefaultLocked() {
 	}
 }
 
+func setServerRestartFlagLocked(serverID string, value bool) bool {
+	for idx := range currentSettings.Servers {
+		if currentSettings.Servers[idx].ID == serverID {
+			currentSettings.Servers[idx].RestartNeeded = value
+			return true
+		}
+	}
+	return false
+}
+
+func anyServerNeedsRestartLocked() bool {
+	for _, srv := range currentSettings.Servers {
+		if srv.RestartNeeded {
+			return true
+		}
+	}
+	return false
+}
+
+func updateGlobalRestartFlagLocked() {
+	currentSettings.RestartNeeded = anyServerNeedsRestartLocked()
+}
+
+func markAllServersRestartLocked() {
+	for idx := range currentSettings.Servers {
+		currentSettings.Servers[idx].RestartNeeded = true
+	}
+}
+
 // DeleteServer removes a server by ID.
 func DeleteServer(id string) error {
 	settingsLock.Lock()
@@ -998,21 +1041,43 @@ func GetSettings() AppSettings {
 	return currentSettings
 }
 
-// MarkRestartNeeded sets restartNeeded = true and saves JSON
-func MarkRestartNeeded() error {
+// MarkRestartNeeded marks the specified server as requiring a restart.
+func MarkRestartNeeded(serverID string) error {
 	settingsLock.Lock()
 	defer settingsLock.Unlock()
 
-	currentSettings.RestartNeeded = true
+	if serverID == "" {
+		return fmt.Errorf("server id must be provided")
+	}
+
+	if !setServerRestartFlagLocked(serverID, true) {
+		return fmt.Errorf("server %s not found", serverID)
+	}
+
+	updateGlobalRestartFlagLocked()
+	if err := persistServersLocked(); err != nil {
+		return err
+	}
 	return persistAppSettingsLocked()
 }
 
-// MarkRestartDone sets restartNeeded = false and saves JSON
-func MarkRestartDone() error {
+// MarkRestartDone marks the specified server as no longer requiring a restart.
+func MarkRestartDone(serverID string) error {
 	settingsLock.Lock()
 	defer settingsLock.Unlock()
 
-	currentSettings.RestartNeeded = false
+	if serverID == "" {
+		return fmt.Errorf("server id must be provided")
+	}
+
+	if !setServerRestartFlagLocked(serverID, false) {
+		return fmt.Errorf("server %s not found", serverID)
+	}
+
+	updateGlobalRestartFlagLocked()
+	if err := persistServersLocked(); err != nil {
+		return err
+	}
 	return persistAppSettingsLocked()
 }
 
@@ -1026,16 +1091,15 @@ func UpdateSettings(new AppSettings) (AppSettings, error) {
 	old := currentSettings
 
 	// If certain fields change, we mark reload needed
-	if old.BantimeIncrement != new.BantimeIncrement ||
+	restartTriggered := old.BantimeIncrement != new.BantimeIncrement ||
 		old.IgnoreIP != new.IgnoreIP ||
 		old.Bantime != new.Bantime ||
 		old.Findtime != new.Findtime ||
-		//old.Maxretry != new.Maxretry ||
-		old.Maxretry != new.Maxretry {
+		old.Maxretry != new.Maxretry
+	if restartTriggered {
 		new.RestartNeeded = true
 	} else {
-		// preserve previous RestartNeeded if it was already true
-		new.RestartNeeded = new.RestartNeeded || old.RestartNeeded
+		new.RestartNeeded = anyServerNeedsRestartLocked()
 	}
 
 	new.CallbackURL = strings.TrimSpace(new.CallbackURL)
@@ -1047,6 +1111,10 @@ func UpdateSettings(new AppSettings) (AppSettings, error) {
 	}
 	currentSettings = new
 	setDefaultsLocked()
+	if currentSettings.RestartNeeded && restartTriggered {
+		markAllServersRestartLocked()
+		updateGlobalRestartFlagLocked()
+	}
 	DebugLog("New settings applied: %v", currentSettings) // Log settings applied
 
 	if err := persistAllLocked(); err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,23 +68,24 @@ type AppSettingsRecord struct {
 }
 
 type ServerRecord struct {
-	ID          string
-	Name        string
-	Type        string
-	Host        string
-	Port        int
-	SocketPath  string
-	LogPath     string
-	SSHUser     string
-	SSHKeyPath  string
-	AgentURL    string
-	AgentSecret string
-	Hostname    string
-	TagsJSON    string
-	IsDefault   bool
-	Enabled     bool
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID           string
+	Name         string
+	Type         string
+	Host         string
+	Port         int
+	SocketPath   string
+	LogPath      string
+	SSHUser      string
+	SSHKeyPath   string
+	AgentURL     string
+	AgentSecret  string
+	Hostname     string
+	TagsJSON     string
+	IsDefault    bool
+	Enabled      bool
+	NeedsRestart bool
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // BanEventRecord represents a single ban event stored in the internal database.
@@ -242,7 +244,7 @@ func ListServers(ctx context.Context) ([]ServerRecord, error) {
 	}
 
 	rows, err := db.QueryContext(ctx, `
-SELECT id, name, type, host, port, socket_path, log_path, ssh_user, ssh_key_path, agent_url, agent_secret, hostname, tags, is_default, enabled, created_at, updated_at
+SELECT id, name, type, host, port, socket_path, log_path, ssh_user, ssh_key_path, agent_url, agent_secret, hostname, tags, is_default, enabled, needs_restart, created_at, updated_at
 FROM servers
 ORDER BY created_at`)
 	if err != nil {
@@ -257,7 +259,7 @@ ORDER BY created_at`)
 		var name, serverType sql.NullString
 		var created, updated sql.NullString
 		var port sql.NullInt64
-		var isDefault, enabled sql.NullInt64
+		var isDefault, enabled, needsRestart sql.NullInt64
 
 		if err := rows.Scan(
 			&rec.ID,
@@ -275,6 +277,7 @@ ORDER BY created_at`)
 			&tags,
 			&isDefault,
 			&enabled,
+			&needsRestart,
 			&created,
 			&updated,
 		); err != nil {
@@ -295,6 +298,7 @@ ORDER BY created_at`)
 		rec.TagsJSON = stringFromNull(tags)
 		rec.IsDefault = intToBool(intFromNull(isDefault))
 		rec.Enabled = intToBool(intFromNull(enabled))
+		rec.NeedsRestart = intToBool(intFromNull(needsRestart))
 
 		if created.Valid {
 			if t, err := time.Parse(time.RFC3339Nano, created.String); err == nil {
@@ -334,9 +338,9 @@ func ReplaceServers(ctx context.Context, servers []ServerRecord) error {
 
 	stmt, err := tx.PrepareContext(ctx, `
 INSERT INTO servers (
-	id, name, type, host, port, socket_path, log_path, ssh_user, ssh_key_path, agent_url, agent_secret, hostname, tags, is_default, enabled, created_at, updated_at
+	id, name, type, host, port, socket_path, log_path, ssh_user, ssh_key_path, agent_url, agent_secret, hostname, tags, is_default, enabled, needs_restart, created_at, updated_at
 ) VALUES (
-	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+	?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 )`)
 	if err != nil {
 		return err
@@ -368,6 +372,7 @@ INSERT INTO servers (
 			srv.TagsJSON,
 			boolToInt(srv.IsDefault),
 			boolToInt(srv.Enabled),
+			boolToInt(srv.NeedsRestart),
 			createdAt.Format(time.RFC3339Nano),
 			updatedAt.Format(time.RFC3339Nano),
 		); err != nil {
@@ -568,6 +573,7 @@ CREATE TABLE IF NOT EXISTS servers (
 	tags TEXT,
 	is_default INTEGER,
 	enabled INTEGER,
+	needs_restart INTEGER DEFAULT 0,
 	created_at TEXT,
 	updated_at TEXT
 );
@@ -591,8 +597,18 @@ CREATE INDEX IF NOT EXISTS idx_ban_events_server_id ON ban_events(server_id);
 CREATE INDEX IF NOT EXISTS idx_ban_events_occurred_at ON ban_events(occurred_at);
 `
 
-	_, err := db.ExecContext(ctx, createTable)
-	return err
+	if _, err := db.ExecContext(ctx, createTable); err != nil {
+		return err
+	}
+
+	// Backfill needs_restart column for existing databases that predate it.
+	if _, err := db.ExecContext(ctx, `ALTER TABLE servers ADD COLUMN needs_restart INTEGER DEFAULT 0`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func ensureDirectory(path string) error {
