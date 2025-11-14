@@ -131,6 +131,17 @@ func (m *Manager) UpdateActionFiles(ctx context.Context) error {
 	return lastErr
 }
 
+// UpdateActionFileForServer updates the action file for a specific server by ID.
+func (m *Manager) UpdateActionFileForServer(ctx context.Context, serverID string) error {
+	m.mu.RLock()
+	conn, ok := m.connectors[serverID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("connector for server %s not found or not enabled", serverID)
+	}
+	return updateConnectorAction(ctx, conn)
+}
+
 // updateConnectorAction updates the action file for a specific connector.
 func updateConnectorAction(ctx context.Context, conn Connector) error {
 	switch c := conn.(type) {

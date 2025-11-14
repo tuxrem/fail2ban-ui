@@ -204,9 +204,34 @@ func (sc *SSHConnector) ensureAction(ctx context.Context) error {
 	script := strings.ReplaceAll(sshEnsureActionScript, "__PAYLOAD__", payload)
 	// Base64 encode the entire script to avoid shell escaping issues
 	scriptB64 := base64.StdEncoding.EncodeToString([]byte(script))
-	cmd := fmt.Sprintf("echo %s | base64 -d | bash", scriptB64)
-	_, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
-	return err
+
+	// Use sh -s to read commands from stdin, then pass the base64 string via stdin
+	// This is the most reliable way to pass data via SSH
+	args := sc.buildSSHArgs([]string{"sh", "-s"})
+	cmd := exec.CommandContext(ctx, "ssh", args...)
+
+	// Create a script that reads the base64 string from stdin and pipes it through base64 -d | bash
+	// We use a here-document to pass the base64 string
+	scriptContent := fmt.Sprintf("cat <<'ENDBASE64' | base64 -d | bash\n%s\nENDBASE64\n", scriptB64)
+	cmd.Stdin = strings.NewReader(scriptContent)
+
+	settingSnapshot := config.GetSettings()
+	if settingSnapshot.Debug {
+		config.DebugLog("SSH ensureAction command [%s]: ssh %s (with here-doc via stdin)", sc.server.Name, strings.Join(args, " "))
+	}
+
+	out, err := cmd.CombinedOutput()
+	output := strings.TrimSpace(string(out))
+	if err != nil {
+		config.DebugLog("Failed to ensure action file for server %s: %v (output: %s)", sc.server.Name, err, output)
+		return fmt.Errorf("failed to ensure action file on remote server %s: %w (remote output: %s)", sc.server.Name, err, output)
+	}
+	if output != "" {
+		config.DebugLog("Successfully ensured action file for server %s (output: %s)", sc.server.Name, output)
+	} else {
+		config.DebugLog("Successfully ensured action file for server %s (no output)", sc.server.Name)
+	}
+	return nil
 }
 
 func (sc *SSHConnector) getJails(ctx context.Context) ([]string, error) {
