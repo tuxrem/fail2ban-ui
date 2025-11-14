@@ -108,6 +108,52 @@ func (m *Manager) Connectors() []Connector {
 	return result
 }
 
+// UpdateActionFiles updates action files for all active remote connectors (SSH and Agent).
+func (m *Manager) UpdateActionFiles(ctx context.Context) error {
+	m.mu.RLock()
+	connectors := make([]Connector, 0, len(m.connectors))
+	for _, conn := range m.connectors {
+		server := conn.Server()
+		// Only update remote servers (SSH and Agent), not local
+		if server.Type == "ssh" || server.Type == "agent" {
+			connectors = append(connectors, conn)
+		}
+	}
+	m.mu.RUnlock()
+
+	var lastErr error
+	for _, conn := range connectors {
+		if err := updateConnectorAction(ctx, conn); err != nil {
+			fmt.Printf("warning: failed to update action file for server %s: %v\n", conn.Server().Name, err)
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+// UpdateActionFileForServer updates the action file for a specific server by ID.
+func (m *Manager) UpdateActionFileForServer(ctx context.Context, serverID string) error {
+	m.mu.RLock()
+	conn, ok := m.connectors[serverID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("connector for server %s not found or not enabled", serverID)
+	}
+	return updateConnectorAction(ctx, conn)
+}
+
+// updateConnectorAction updates the action file for a specific connector.
+func updateConnectorAction(ctx context.Context, conn Connector) error {
+	switch c := conn.(type) {
+	case *SSHConnector:
+		return c.ensureAction(ctx)
+	case *AgentConnector:
+		return c.ensureAction(ctx)
+	default:
+		return nil // Local connectors are handled separately
+	}
+}
+
 func newConnectorForServer(server config.Fail2banServer) (Connector, error) {
 	switch server.Type {
 	case "local":

@@ -271,15 +271,34 @@ func UpsertServerHandler(c *gin.Context) {
 		return
 	}
 
+	// Check if server exists and was previously disabled
+	oldServer, wasEnabled := config.GetServerByID(req.ID)
+	wasDisabled := !wasEnabled || !oldServer.Enabled
+
 	server, err := config.UpsertServer(req)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	// Check if server was just enabled (transition from disabled to enabled)
+	justEnabled := wasDisabled && server.Enabled
+
 	if err := fail2ban.GetManager().ReloadFromSettings(config.GetSettings()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// Only update action files if:
+	// 1. Server was just enabled (transition from disabled to enabled)
+	// 2. Server is a remote server (SSH or Agent)
+	// Note: ReloadFromSettings already calls ensureAction when creating connectors,
+	// but we need to update if the server was just enabled to ensure it has the latest callback URL
+	if justEnabled && (server.Type == "ssh" || server.Type == "agent") {
+		if err := fail2ban.GetManager().UpdateActionFileForServer(c.Request.Context(), server.ID); err != nil {
+			config.DebugLog("Warning: failed to update action file for server %s: %v", server.Name, err)
+			// Don't fail the request, just log the warning
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"server": server})
@@ -634,6 +653,7 @@ func UpdateSettingsHandler(c *gin.Context) {
 	}
 	config.DebugLog("JSON binding successful, updating settings (handlers.go)")
 
+	oldSettings := config.GetSettings()
 	newSettings, err := config.UpdateSettings(req)
 	if err != nil {
 		fmt.Println("Error updating settings:", err)
@@ -642,9 +662,20 @@ func UpdateSettingsHandler(c *gin.Context) {
 	}
 	config.DebugLog("Settings updated successfully (handlers.go)")
 
+	// Check if callback URL changed - if so, update action files for all active remote servers
+	callbackURLChanged := oldSettings.CallbackURL != newSettings.CallbackURL
+
 	if err := fail2ban.GetManager().ReloadFromSettings(config.GetSettings()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload fail2ban connectors: " + err.Error()})
 		return
+	}
+
+	// Update action files for remote servers if callback URL changed
+	if callbackURLChanged {
+		if err := fail2ban.GetManager().UpdateActionFiles(c.Request.Context()); err != nil {
+			config.DebugLog("Warning: failed to update some remote action files: %v", err)
+			// Don't fail the request, just log the warning
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
