@@ -823,6 +823,68 @@
       </div>
     </div>
   </div>
+
+  <!-- Whois Modal -->
+  <div id="whoisModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+      <div class="fixed inset-0 transition-opacity" aria-hidden="true">
+        <div class="absolute inset-0 bg-gray-500 opacity-75"></div>
+      </div>
+
+      <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+      <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+          <div class="sm:flex sm:items-start">
+            <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+              <h3 class="text-lg leading-6 font-medium text-gray-900">
+                <span data-i18n="logs.modal.whois_title">Whois Information</span> - <span id="whoisModalIP"></span>
+              </h3>
+              <div class="mt-4">
+                <pre id="whoisModalContent" class="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-900 text-green-400 font-mono text-xs overflow-x-auto" style="max-height: 70vh; white-space: pre-wrap; word-wrap: break-word;"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+          <button type="button" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm" onclick="closeModal('whoisModal')" data-i18n="modal.close">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Logs Modal -->
+  <div id="logsModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+      <div class="fixed inset-0 transition-opacity" aria-hidden="true">
+        <div class="absolute inset-0 bg-gray-500 opacity-75"></div>
+      </div>
+
+      <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+      <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+          <div class="sm:flex sm:items-start">
+            <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+              <h3 class="text-lg leading-6 font-medium text-gray-900 mb-2">
+                <span data-i18n="logs.modal.logs_title">Logs</span> - <span id="logsModalIP"></span>
+              </h3>
+              <p class="text-sm text-gray-600 mb-4">
+                <span data-i18n="logs.modal.jail">Jail:</span> <span id="logsModalJail" class="font-semibold"></span>
+              </p>
+              <div class="mt-4">
+                <pre id="logsModalContent" class="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-900 text-green-400 font-mono text-xs overflow-x-auto" style="max-height: 70vh; white-space: pre-wrap; word-wrap: break-word;"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+          <button type="button" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm" onclick="closeModal('logsModal')" data-i18n="modal.close">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ********************** Modal Templates END ************************ -->
 
   <!-- jQuery (used by Select2) -->
@@ -1470,10 +1532,13 @@
           + '        <th class="hidden sm:table-cell px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="logs.table.jail">Jail</th>'
           + '        <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="logs.table.ip">IP</th>'
           + '        <th class="hidden md:table-cell px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="logs.table.country">Country</th>'
+          + '        <th class="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="logs.table.actions">Actions</th>'
           + '      </tr>'
           + '    </thead>'
           + '    <tbody class="bg-white divide-y divide-gray-200">';
-        latestBanEvents.forEach(function(event) {
+        latestBanEvents.forEach(function(event, index) {
+          var hasWhois = event.whois && event.whois.trim().length > 0;
+          var hasLogs = event.logs && event.logs.trim().length > 0;
           html += ''
             + '      <tr class="hover:bg-gray-50">'
             + '        <td class="px-2 py-2 whitespace-nowrap">' + escapeHtml(formatDateTime(event.occurredAt || event.createdAt)) + '</td>'
@@ -1481,6 +1546,12 @@
             + '        <td class="hidden sm:table-cell px-2 py-2 whitespace-nowrap">' + escapeHtml(event.jail || '') + '</td>'
             + '        <td class="px-2 py-2 whitespace-nowrap">' + escapeHtml(event.ip || '') + '</td>'
             + '        <td class="hidden md:table-cell px-2 py-2 whitespace-nowrap">' + escapeHtml(event.country || '—') + '</td>'
+            + '        <td class="px-2 py-2 whitespace-nowrap">'
+            + '          <div class="flex gap-2">'
+            + (hasWhois ? '            <button onclick="openWhoisModal(' + index + ')" class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700" data-i18n="logs.actions.whois">Whois</button>' : '            <button disabled class="px-2 py-1 text-xs bg-gray-300 text-gray-500 rounded cursor-not-allowed" data-i18n="logs.actions.whois">Whois</button>')
+            + (hasLogs ? '            <button onclick="openLogsModal(' + index + ')" class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700" data-i18n="logs.actions.logs">Logs</button>' : '            <button disabled class="px-2 py-1 text-xs bg-gray-300 text-gray-500 rounded cursor-not-allowed" data-i18n="logs.actions.logs">Logs</button>')
+            + '          </div>'
+            + '        </td>'
             + '      </tr>';
         });
         html += '    </tbody></table></div>';
@@ -2050,6 +2121,82 @@
         .finally(function() {
           showLoading(false);
         });
+    }
+
+    // Function: openWhoisModal
+    // Opens the whois modal with data from the event at the given index
+    function openWhoisModal(eventIndex) {
+      if (!latestBanEvents || !latestBanEvents[eventIndex]) {
+        showToast("Event not found", 'error');
+        return;
+      }
+      var event = latestBanEvents[eventIndex];
+      if (!event.whois || !event.whois.trim()) {
+        showToast("No whois data available for this event", 'info');
+        return;
+      }
+
+      document.getElementById('whoisModalIP').textContent = event.ip || 'N/A';
+      var contentEl = document.getElementById('whoisModalContent');
+      contentEl.textContent = event.whois;
+      openModal('whoisModal');
+    }
+
+    // Function: openLogsModal
+    // Opens the logs modal with data from the event at the given index
+    // Highlights the line that caused the block
+    function openLogsModal(eventIndex) {
+      if (!latestBanEvents || !latestBanEvents[eventIndex]) {
+        showToast("Event not found", 'error');
+        return;
+      }
+      var event = latestBanEvents[eventIndex];
+      if (!event.logs || !event.logs.trim()) {
+        showToast("No logs data available for this event", 'info');
+        return;
+      }
+
+      document.getElementById('logsModalIP').textContent = event.ip || 'N/A';
+      document.getElementById('logsModalJail').textContent = event.jail || 'N/A';
+
+      var logs = event.logs;
+      var ip = event.ip || '';
+      var logLines = logs.split('\n');
+
+      // Find the line that likely caused the block
+      // Look for lines containing the IP address, prefer the last one
+      var highlightedLineIndex = -1;
+      for (var i = logLines.length - 1; i >= 0; i--) {
+        if (ip && logLines[i].indexOf(ip) !== -1) {
+          highlightedLineIndex = i;
+          break;
+        }
+      }
+
+      // If no line with IP found, highlight the last line
+      if (highlightedLineIndex === -1 && logLines.length > 0) {
+        highlightedLineIndex = logLines.length - 1;
+      }
+
+      // Build HTML with highlighted line
+      var contentEl = document.getElementById('logsModalContent');
+      if (highlightedLineIndex >= 0) {
+        var html = '';
+        for (var i = 0; i < logLines.length; i++) {
+          var line = escapeHtml(logLines[i] || '');
+          if (i === highlightedLineIndex) {
+            // Highlight the entire line - use inline span that covers the full width
+            html += '<span style="display: block; background-color: #d97706; color: #fef3c7; padding: 0.25rem 0.5rem; margin: 0.125rem 0; border-radius: 0.25rem;">' + line + '</span>';
+          } else {
+            html += line + '\n';
+          }
+        }
+        contentEl.innerHTML = html;
+      } else {
+        contentEl.textContent = logs;
+      }
+
+      openModal('logsModal');
     }
 
     // Function: openManageJailsModal
