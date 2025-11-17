@@ -120,6 +120,7 @@
     "settings.ignore_ips_placeholder": "IPs, getrennt dur e Leerzeichä",
     "settings.save": "Speicherä",
     "modal.filter_config": "Filter-Konfiguration:",
+    "modal.filter_config_edit": "Filter bearbeite",
     "modal.cancel": "Abbräche",
     "modal.save": "Speicherä",
     "modal.close": "Zue",

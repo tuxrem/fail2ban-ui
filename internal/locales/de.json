@@ -120,6 +120,7 @@
     "settings.ignore_ips_placeholder": "IP-Adressen, getrennt durch Leerzeichen",
     "settings.save": "Speichern",
     "modal.filter_config": "Filter-Konfiguration:",
+    "modal.filter_config_edit": "Filter bearbeiten",
     "modal.cancel": "Abbrechen",
     "modal.save": "Speichern",
     "modal.close": "Schließen",

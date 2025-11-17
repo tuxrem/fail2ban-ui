@@ -120,6 +120,7 @@
   "settings.ignore_ips_placeholder": "IP da ignorare, separate da spazi",
   "settings.save": "Salva",
   "modal.filter_config": "Configurazione del filtro:",
+  "modal.filter_config_edit": "Modifica filtro",
   "modal.cancel": "Annulla",
   "modal.save": "Salva",
   "modal.close": "Chiudi",
