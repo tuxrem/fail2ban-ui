@@ -68,5 +68,6 @@ func RegisterRoutes(r *gin.Engine) {
 		// Internal database overview
 		api.GET("/events/bans", ListBanEventsHandler)
 		api.GET("/events/bans/stats", BanStatisticsHandler)
+		api.GET("/events/bans/insights", BanInsightsHandler)
 	}
 }

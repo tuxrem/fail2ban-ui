@@ -104,6 +104,14 @@ type BanEventRecord struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
+// RecurringIPStat represents aggregation info for repeatedly banned IPs.
+type RecurringIPStat struct {
+	IP       string    `json:"ip"`
+	Country  string    `json:"country"`
+	Count    int64     `json:"count"`
+	LastSeen time.Time `json:"lastSeen"`
+}
+
 // Init initializes the internal storage. Safe to call multiple times.
 func Init(dbPath string) error {
 	initOnce.Do(func() {
@@ -527,6 +535,124 @@ WHERE 1=1`
 	}
 
 	return result, rows.Err()
+}
+
+// CountBanEvents returns total number of ban events optionally filtered by time.
+func CountBanEvents(ctx context.Context, since time.Time) (int64, error) {
+	if db == nil {
+		return 0, errors.New("storage not initialised")
+	}
+
+	query := `
+SELECT COUNT(*)
+FROM ban_events
+WHERE 1=1`
+	args := []any{}
+
+	if !since.IsZero() {
+		query += " AND occurred_at >= ?"
+		args = append(args, since.UTC())
+	}
+
+	var total int64
+	if err := db.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// CountBanEventsByCountry returns aggregation per country code.
+func CountBanEventsByCountry(ctx context.Context, since time.Time) (map[string]int64, error) {
+	if db == nil {
+		return nil, errors.New("storage not initialised")
+	}
+
+	query := `
+SELECT COALESCE(country, '') AS country, COUNT(*)
+FROM ban_events
+WHERE 1=1`
+	args := []any{}
+
+	if !since.IsZero() {
+		query += " AND occurred_at >= ?"
+		args = append(args, since.UTC())
+	}
+
+	query += " GROUP BY COALESCE(country, '')"
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var country sql.NullString
+		var count int64
+		if err := rows.Scan(&country, &count); err != nil {
+			return nil, err
+		}
+		result[stringFromNull(country)] = count
+	}
+
+	return result, rows.Err()
+}
+
+// ListRecurringIPStats returns IPs that have been banned at least minCount times.
+func ListRecurringIPStats(ctx context.Context, since time.Time, minCount, limit int) ([]RecurringIPStat, error) {
+	if db == nil {
+		return nil, errors.New("storage not initialised")
+	}
+
+	if minCount < 2 {
+		minCount = 2
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+
+	query := `
+SELECT ip, COALESCE(country, '') AS country, COUNT(*) AS cnt, MAX(occurred_at) AS last_seen
+FROM ban_events
+WHERE ip != ''`
+	args := []any{}
+
+	if !since.IsZero() {
+		query += " AND occurred_at >= ?"
+		args = append(args, since.UTC())
+	}
+
+	query += `
+GROUP BY ip, COALESCE(country, '')
+HAVING cnt >= ?
+ORDER BY cnt DESC, last_seen DESC
+LIMIT ?`
+
+	args = append(args, minCount, limit)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []RecurringIPStat
+	for rows.Next() {
+		var stat RecurringIPStat
+		var lastSeen sql.NullString
+		if err := rows.Scan(&stat.IP, &stat.Country, &stat.Count, &lastSeen); err != nil {
+			return nil, err
+		}
+		if lastSeen.Valid {
+			if parsed, err := time.Parse(time.RFC3339Nano, lastSeen.String); err == nil {
+				stat.LastSeen = parsed
+			}
+		}
+		results = append(results, stat)
+	}
+
+	return results, rows.Err()
 }
 
 func ensureSchema(ctx context.Context) error {

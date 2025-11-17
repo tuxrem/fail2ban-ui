@@ -885,6 +885,41 @@
     </div>
   </div>
 
+  <!-- Ban Insights Modal -->
+  <div id="banInsightsModal" class="hidden fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+      <div class="fixed inset-0 transition-opacity" aria-hidden="true">
+        <div class="absolute inset-0 bg-gray-500 opacity-75"></div>
+      </div>
+
+      <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+
+      <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+          <div class="sm:flex sm:items-start">
+            <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+              <h3 class="text-lg leading-6 font-medium text-gray-900" data-i18n="logs.modal.insights_title">Ban Insights</h3>
+              <p class="mt-1 text-sm text-gray-500" data-i18n="logs.modal.insights_description">Country distribution and recurring offenders.</p>
+
+              <div class="mt-6">
+                <h4 class="text-md font-semibold text-gray-800 mb-2" data-i18n="logs.modal.insights_countries">Bans by country</h4>
+                <div id="countryStatsContainer" class="max-h-64 overflow-y-auto divide-y divide-gray-200"></div>
+              </div>
+
+              <div class="mt-6">
+                <h4 class="text-md font-semibold text-gray-800 mb-2" data-i18n="logs.modal.insights_recurring">Recurring IPs</h4>
+                <div id="recurringIPsContainer" class="max-h-64 overflow-y-auto divide-y divide-gray-200"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+          <button type="button" class="w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm" onclick="closeModal('banInsightsModal')" data-i18n="modal.close">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ********************** Modal Templates END ************************ -->
 
   <!-- jQuery (used by Select2) -->
@@ -909,6 +944,14 @@
     var latestSummaryError = null;
     var latestBanStats = {};
     var latestBanEvents = [];
+    var latestBanInsights = {
+      totals: { overall: 0, today: 0, week: 0 },
+      countries: [],
+      recurring: []
+    };
+    var banEventsFilterText = '';
+    var banEventsFilterCountry = 'all';
+    var banEventsFilterDebounce = null;
     var translations = {};
     var sshKeysCache = null;
 
@@ -1233,13 +1276,14 @@
     function refreshData(options) {
       options = options || {};
       var enabledServers = serversCache.filter(function(s) { return s.enabled; });
+
+      var summaryPromise;
       if (!serversCache.length || !enabledServers.length || !currentServerId) {
         latestSummary = null;
         latestSummaryError = null;
-        latestBanStats = {};
-        latestBanEvents = [];
-        renderDashboard();
-        return Promise.resolve();
+        summaryPromise = Promise.resolve();
+      } else {
+        summaryPromise = fetchSummaryData();
       }
 
       if (!options.silent) {
@@ -1247,9 +1291,10 @@
       }
 
       return Promise.all([
-        fetchSummaryData(),
+        summaryPromise,
         fetchBanStatisticsData(),
-        fetchBanEventsData()
+        fetchBanEventsData(),
+        fetchBanInsightsData()
       ])
         .then(function() {
           renderDashboard();
@@ -1285,7 +1330,7 @@
     }
 
     function fetchBanStatisticsData() {
-      return fetch(withServerParam('/api/events/bans/stats'))
+      return fetch('/api/events/bans/stats')
         .then(function(res) { return res.json(); })
         .then(function(data) {
           latestBanStats = data && data.counts ? data.counts : {};
@@ -1297,7 +1342,7 @@
     }
 
     function fetchBanEventsData() {
-      return fetch(withServerParam('/api/events/bans?limit=25'))
+      return fetch('/api/events/bans?limit=200')
         .then(function(res) { return res.json(); })
         .then(function(data) {
           latestBanEvents = data && data.events ? data.events : [];
@@ -1305,6 +1350,23 @@
         .catch(function(err) {
           console.error('Error fetching ban events:', err);
           latestBanEvents = latestBanEvents || [];
+        });
+    }
+
+    function fetchBanInsightsData() {
+      return fetch('/api/events/bans/insights')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          latestBanInsights = data || {};
+          latestBanInsights.totals = latestBanInsights.totals || { overall: 0, today: 0, week: 0 };
+          latestBanInsights.countries = latestBanInsights.countries || [];
+          latestBanInsights.recurring = latestBanInsights.recurring || [];
+        })
+        .catch(function(err) {
+          console.error('Error fetching ban insights:', err);
+          if (!latestBanInsights) {
+            latestBanInsights = { totals: { overall: 0, today: 0, week: 0 }, countries: [], recurring: [] };
+          }
         });
     }
 
@@ -1325,10 +1387,106 @@
     }
 
     function totalStoredBans() {
+      if (latestBanInsights && latestBanInsights.totals && typeof latestBanInsights.totals.overall === 'number') {
+        return latestBanInsights.totals.overall;
+      }
       if (!latestBanStats) return 0;
       return Object.keys(latestBanStats).reduce(function(sum, key) {
         return sum + (latestBanStats[key] || 0);
       }, 0);
+    }
+
+    function totalBansToday() {
+      if (latestBanInsights && latestBanInsights.totals && typeof latestBanInsights.totals.today === 'number') {
+        return latestBanInsights.totals.today;
+      }
+      return 0;
+    }
+
+    function totalBansWeek() {
+      if (latestBanInsights && latestBanInsights.totals && typeof latestBanInsights.totals.week === 'number') {
+        return latestBanInsights.totals.week;
+      }
+      return 0;
+    }
+
+    function getBanEventCountries() {
+      var countries = {};
+      latestBanEvents.forEach(function(event) {
+        var country = (event.country || '').trim();
+        var key = country.toLowerCase();
+        if (!countries[key]) {
+          countries[key] = country;
+        }
+      });
+      var keys = Object.keys(countries);
+      keys.sort();
+      return keys.map(function(key) {
+        return countries[key];
+      });
+    }
+
+    function getFilteredBanEvents() {
+      var text = (banEventsFilterText || '').toLowerCase();
+      var countryFilter = (banEventsFilterCountry || '').toLowerCase();
+
+      return latestBanEvents.filter(function(event) {
+        var matchesCountry = !countryFilter || countryFilter === 'all';
+        if (!matchesCountry) {
+          var eventCountryValue = (event.country || '').toLowerCase();
+          if (!eventCountryValue) {
+            eventCountryValue = '__unknown__';
+          }
+          matchesCountry = eventCountryValue === countryFilter;
+        }
+
+        if (!text) {
+          return matchesCountry;
+        }
+
+        var haystack = [
+          event.ip,
+          event.jail,
+          event.serverName,
+          event.hostname,
+          event.country
+        ].map(function(value) {
+          return (value || '').toLowerCase();
+        });
+
+        var matchesText = haystack.some(function(value) {
+          return value.indexOf(text) !== -1;
+        });
+
+        return matchesCountry && matchesText;
+      });
+    }
+
+    function updateBanEventsSearch(value) {
+      banEventsFilterText = value || '';
+      if (banEventsFilterDebounce) {
+        clearTimeout(banEventsFilterDebounce);
+      }
+      banEventsFilterDebounce = setTimeout(function() {
+        renderDashboard();
+      }, 200);
+    }
+
+    function updateBanEventsCountry(value) {
+      banEventsFilterCountry = value || 'all';
+      renderDashboard();
+    }
+
+    function getRecurringIPMap() {
+      var map = {};
+      if (latestBanInsights && Array.isArray(latestBanInsights.recurring)) {
+        latestBanInsights.recurring.forEach(function(stat) {
+          if (stat && stat.ip) {
+            map[stat.ip] = stat;
+          }
+        });
+      }
+      return map;
     }
 
     function renderDashboard() {
@@ -1370,84 +1528,81 @@
           + '<div class="bg-white rounded-lg shadow p-6 mb-6">'
           + '  <p class="text-gray-500" data-i18n="dashboard.loading_summary">Loading summary data…</p>'
           + '</div>';
-        container.innerHTML = html;
-        if (typeof updateTranslations === 'function') updateTranslations();
-        return;
-      }
-
-      var totalBanned = summary.jails ? summary.jails.reduce(function(sum, j) { return sum + (j.totalBanned || 0); }, 0) : 0;
-      var newLastHour = summary.jails ? summary.jails.reduce(function(sum, j) { return sum + (j.newInLastHour || 0); }, 0) : 0;
-      var totalStored = totalStoredBans();
-
-      html += ''
-        + '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">'
-        + '  <div class="bg-white rounded-lg shadow p-4">'
-        + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.active_jails">Active Jails</p>'
-        + '    <p class="text-2xl font-semibold text-gray-800">' + (summary.jails ? summary.jails.length : 0) + '</p>'
-        + '  </div>'
-        + '  <div class="bg-white rounded-lg shadow p-4">'
-        + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.total_banned">Total Banned IPs</p>'
-        + '    <p class="text-2xl font-semibold text-gray-800">' + totalBanned + '</p>'
-        + '  </div>'
-        + '  <div class="bg-white rounded-lg shadow p-4">'
-        + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.new_last_hour">New Last Hour</p>'
-        + '    <p class="text-2xl font-semibold text-gray-800">' + newLastHour + '</p>'
-        + '  </div>'
-        + '  <div class="bg-white rounded-lg shadow p-4">'
-        + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.total_logged">Stored Ban Events</p>'
-        + '    <p class="text-2xl font-semibold text-gray-800">' + totalStored + '</p>'
-        + '  </div>'
-        + '</div>';
-
-      html += ''
-        + '<div class="bg-white rounded-lg shadow p-6 mb-6">'
-        + '  <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">'
-        + '    <div>'
-        + '      <h3 class="text-lg font-medium text-gray-900 mb-2" data-i18n="dashboard.overview">Overview active Jails and Blocks</h3>'
-        + '      <p class="text-sm text-gray-500" data-i18n="dashboard.overview_hint">Use the search to filter banned IPs and click a jail to edit its configuration.</p>'
-        + '    </div>'
-        + '    <div>'
-        + '      <label for="ipSearch" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="dashboard.search_label">Search Banned IPs</label>'
-        + '      <input type="text" id="ipSearch" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" data-i18n-placeholder="dashboard.search_placeholder" placeholder="Enter IP address to search" onkeyup="filterIPs()" pattern="[0-9.]*">'
-        + '    </div>'
-        + '  </div>';
-
-      if (!summary.jails || summary.jails.length === 0) {
-        html += '<p class="text-gray-500 mt-4" data-i18n="dashboard.no_jails">No jails found.</p>';
       } else {
+        var totalBanned = summary.jails ? summary.jails.reduce(function(sum, j) { return sum + (j.totalBanned || 0); }, 0) : 0;
+        var newLastHour = summary.jails ? summary.jails.reduce(function(sum, j) { return sum + (j.newInLastHour || 0); }, 0) : 0;
+        var totalStored = totalStoredBans();
+
         html += ''
-          + '<div class="overflow-x-auto mt-4">'
-          + '  <table class="min-w-full divide-y divide-gray-200 text-sm sm:text-base" id="jailsTable">'
-          + '    <thead class="bg-gray-50">'
-          + '      <tr>'
-          + '        <th class="px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.jail">Jail</th>'
-          + '        <th class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.total_banned">Total Banned</th>'
-          + '        <th class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.new_last_hour">New Last Hour</th>'
-          + '        <th class="px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.banned_ips">Banned IPs</th>'
-          + '      </tr>'
-          + '    </thead>'
-          + '    <tbody class="bg-white divide-y divide-gray-200">';
+          + '<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">'
+          + '  <div class="bg-white rounded-lg shadow p-4">'
+          + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.active_jails">Active Jails</p>'
+          + '    <p class="text-2xl font-semibold text-gray-800">' + (summary.jails ? summary.jails.length : 0) + '</p>'
+          + '  </div>'
+          + '  <div class="bg-white rounded-lg shadow p-4">'
+          + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.total_banned">Total Banned IPs</p>'
+          + '    <p class="text-2xl font-semibold text-gray-800">' + totalBanned + '</p>'
+          + '  </div>'
+          + '  <div class="bg-white rounded-lg shadow p-4">'
+          + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.new_last_hour">New Last Hour</p>'
+          + '    <p class="text-2xl font-semibold text-gray-800">' + newLastHour + '</p>'
+          + '  </div>'
+          + '  <div class="bg-white rounded-lg shadow p-4">'
+          + '    <p class="text-sm text-gray-500" data-i18n="dashboard.cards.total_logged">Stored Ban Events</p>'
+          + '    <p class="text-2xl font-semibold text-gray-800">' + totalStored + '</p>'
+          + '  </div>'
+          + '</div>';
 
-        summary.jails.forEach(function(jail) {
-          var bannedHTML = renderBannedIPs(jail.jailName, jail.bannedIPs || []);
+        html += ''
+          + '<div class="bg-white rounded-lg shadow p-6 mb-6">'
+          + '  <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">'
+          + '    <div>'
+          + '      <h3 class="text-lg font-medium text-gray-900 mb-2" data-i18n="dashboard.overview">Overview active Jails and Blocks</h3>'
+          + '      <p class="text-sm text-gray-500" data-i18n="dashboard.overview_hint">Use the search to filter banned IPs and click a jail to edit its configuration.</p>'
+          + '    </div>'
+          + '    <div>'
+          + '      <label for="ipSearch" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="dashboard.search_label">Search Banned IPs</label>'
+          + '      <input type="text" id="ipSearch" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" data-i18n-placeholder="dashboard.search_placeholder" placeholder="Enter IP address to search" onkeyup="filterIPs()" pattern="[0-9.]*">'
+          + '    </div>'
+          + '  </div>';
+
+        if (!summary.jails || summary.jails.length === 0) {
+          html += '<p class="text-gray-500 mt-4" data-i18n="dashboard.no_jails">No jails found.</p>';
+        } else {
           html += ''
-            + '<tr class="jail-row hover:bg-gray-50">'
-            + '  <td class="px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">'
-            + '    <a href="#" onclick="openJailConfigModal(\'' + escapeHtml(jail.jailName) + '\')" class="text-blue-600 hover:text-blue-800">'
-            +        escapeHtml(jail.jailName)
-            + '    </a>'
-            + '  </td>'
-            + '  <td class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">' + (jail.totalBanned || 0) + '</td>'
-            + '  <td class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">' + (jail.newInLastHour || 0) + '</td>'
-            + '  <td class="px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">' + bannedHTML + '</td>'
-            + '</tr>';
-        });
+            + '<div class="overflow-x-auto mt-4">'
+            + '  <table class="min-w-full divide-y divide-gray-200 text-sm sm:text-base" id="jailsTable">'
+            + '    <thead class="bg-gray-50">'
+            + '      <tr>'
+            + '        <th class="px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.jail">Jail</th>'
+            + '        <th class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.total_banned">Total Banned</th>'
+            + '        <th class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.new_last_hour">New Last Hour</th>'
+            + '        <th class="px-2 py-1 sm:px-6 sm:py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" data-i18n="dashboard.table.banned_ips">Banned IPs</th>'
+            + '      </tr>'
+            + '    </thead>'
+            + '    <tbody class="bg-white divide-y divide-gray-200">';
 
-        html += '    </tbody></table>';
-        html += '</div>';
+          summary.jails.forEach(function(jail) {
+            var bannedHTML = renderBannedIPs(jail.jailName, jail.bannedIPs || []);
+            html += ''
+              + '<tr class="jail-row hover:bg-gray-50">'
+              + '  <td class="px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">'
+              + '    <a href="#" onclick="openJailConfigModal(\'' + escapeHtml(jail.jailName) + '\')" class="text-blue-600 hover:text-blue-800">'
+              +        escapeHtml(jail.jailName)
+              + '    </a>'
+              + '  </td>'
+              + '  <td class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">' + (jail.totalBanned || 0) + '</td>'
+              + '  <td class="hidden sm:table-cell px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">' + (jail.newInLastHour || 0) + '</td>'
+              + '  <td class="px-2 py-1 sm:px-6 sm:py-4 whitespace-normal break-words">' + bannedHTML + '</td>'
+              + '</tr>';
+          });
+
+          html += '    </tbody></table>';
+          html += '</div>';
+        }
+
+        html += '</div>'; // close overview card
       }
-
-      html += '</div>'; // close overview card
 
       html += renderLogOverview();
 
@@ -1486,14 +1641,36 @@
         + '  </div>';
 
       var statsKeys = Object.keys(latestBanStats || {});
-      if (statsKeys.length === 0) {
+      statsKeys.sort(function(a, b) {
+        return (latestBanStats[b] || 0) - (latestBanStats[a] || 0);
+      });
+      var totalStored = totalStoredBans();
+      var todayCount = totalBansToday();
+      var weekCount = totalBansWeek();
+
+      if (statsKeys.length === 0 && totalStored === 0) {
         html += '<p class="text-gray-500" data-i18n="logs.overview.empty">No ban events recorded yet.</p>';
       } else {
         html += ''
           + '<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">'
-          + '  <div class="border border-gray-200 rounded-lg p-4">'
-          + '    <p class="text-sm text-gray-500" data-i18n="logs.overview.total_events">Total stored events</p>'
-          + '    <p class="text-2xl font-semibold text-gray-800">' + totalStoredBans() + '</p>'
+          + '  <div class="border border-gray-200 rounded-lg p-4 flex flex-col gap-4">'
+          + '    <div class="flex items-start justify-between gap-4">'
+          + '      <div>'
+          + '        <p class="text-sm text-gray-500" data-i18n="logs.overview.total_events">Total stored events</p>'
+          + '        <p class="text-2xl font-semibold text-gray-800">' + totalStored + '</p>'
+          + '      </div>'
+          + '      <button type="button" class="inline-flex items-center px-3 py-1 text-sm rounded border border-blue-200 text-blue-600 hover:bg-blue-50" onclick="openBanInsightsModal()" data-i18n="logs.overview.open_insights">Open insights</button>'
+          + '    </div>'
+          + '    <div class="grid grid-cols-2 gap-4 text-sm">'
+          + '      <div>'
+          + '        <p class="text-gray-500" data-i18n="logs.overview.total_today">Today</p>'
+          + '        <p class="text-lg font-semibold text-gray-900">' + todayCount + '</p>'
+          + '      </div>'
+          + '      <div>'
+          + '        <p class="text-gray-500" data-i18n="logs.overview.total_week">Last 7 days</p>'
+          + '        <p class="text-lg font-semibold text-gray-900">' + weekCount + '</p>'
+          + '      </div>'
+          + '    </div>'
           + '  </div>'
           + '  <div class="border border-gray-200 rounded-lg p-4 overflow-x-auto">'
           + '    <p class="text-sm text-gray-500 mb-2" data-i18n="logs.overview.per_server">Events per server</p>'
@@ -1505,23 +1682,59 @@
           + '        </tr>'
           + '      </thead>'
           + '      <tbody>';
-        statsKeys.forEach(function(serverId) {
-          var count = latestBanStats[serverId] || 0;
-          var server = serversCache.find(function(s) { return s.id === serverId; });
-          html += ''
-            + '        <tr>'
-            + '          <td class="pr-4 py-1">' + escapeHtml(server ? server.name : serverId) + '</td>'
-            + '          <td class="py-1">' + count + '</td>'
-            + '        </tr>';
-        });
+        if (!statsKeys.length) {
+          html += '<tr><td colspan="2" class="py-2 text-sm text-gray-500" data-i18n="logs.overview.per_server_empty">No per-server data available yet.</td></tr>';
+        } else {
+          statsKeys.forEach(function(serverId) {
+            var count = latestBanStats[serverId] || 0;
+            var server = serversCache.find(function(s) { return s.id === serverId; });
+            html += ''
+              + '        <tr>'
+              + '          <td class="pr-4 py-1">' + escapeHtml(server ? server.name : serverId) + '</td>'
+              + '          <td class="py-1">' + count + '</td>'
+              + '        </tr>';
+          });
+        }
         html += '      </tbody></table></div></div>';
       }
 
       html += '<h4 class="text-md font-semibold text-gray-800 mb-3" data-i18n="logs.overview.recent_events_title">Recent stored events</h4>';
 
       if (!latestBanEvents.length) {
-        html += '<p class="text-gray-500" data-i18n="logs.overview.recent_empty">No stored events found for the selected server.</p>';
+        html += '<p class="text-gray-500" data-i18n="logs.overview.recent_empty">No stored events found.</p>';
       } else {
+        var countries = getBanEventCountries();
+        var filteredEvents = getFilteredBanEvents();
+        var recurringMap = getRecurringIPMap();
+
+        html += ''
+          + '<div class="flex flex-col sm:flex-row gap-3 mb-4">'
+          + '  <div class="flex-1">'
+          + '    <label for="recentEventsSearch" class="block text-sm font-medium text-gray-700 mb-1" data-i18n="logs.search.label">Search events</label>'
+          + '    <input type="text" id="recentEventsSearch" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="' + t('logs.search.placeholder', 'Search IP, jail or server') + '" value="' + escapeHtml(banEventsFilterText) + '" oninput="updateBanEventsSearch(this.value)">'
+          + '  </div>'
+          + '  <div class="w-full sm:w-48">'
+          + '    <label for="recentEventsCountry" class="block text-sm font-medium text-gray-700 mb-1" data-i18n="logs.search.country_label">Country</label>'
+          + '    <select id="recentEventsCountry" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="updateBanEventsCountry(this.value)">'
+          + '      <option value="all"' + (banEventsFilterCountry === 'all' ? ' selected' : '') + ' data-i18n="logs.search.country_all">All countries</option>';
+
+        countries.forEach(function(country) {
+          var value = (country || '').trim();
+          var optionValue = value ? value.toLowerCase() : '__unknown__';
+          var label = value || t('logs.search.country_unknown', 'Unknown');
+          var selected = banEventsFilterCountry.toLowerCase() === optionValue ? ' selected' : '';
+          html += '<option value="' + optionValue + '"' + selected + '>' + escapeHtml(label) + '</option>';
+        });
+
+        html += '    </select>'
+          + '  </div>'
+          + '</div>';
+
+        html += '<p class="text-xs text-gray-500 mb-3">' + t('logs.overview.recent_count_label', 'Events shown') + ': ' + filteredEvents.length + ' / ' + latestBanEvents.length + '</p>';
+
+        if (!filteredEvents.length) {
+          html += '<p class="text-gray-500" data-i18n="logs.overview.recent_filtered_empty">No stored events match the current filters.</p>';
+        } else {
         html += ''
           + '<div class="overflow-x-auto">'
           + '  <table class="min-w-full divide-y divide-gray-200 text-sm">'
@@ -1536,15 +1749,20 @@
           + '      </tr>'
           + '    </thead>'
           + '    <tbody class="bg-white divide-y divide-gray-200">';
-        latestBanEvents.forEach(function(event, index) {
+        filteredEvents.forEach(function(event) {
+          var index = latestBanEvents.indexOf(event);
           var hasWhois = event.whois && event.whois.trim().length > 0;
           var hasLogs = event.logs && event.logs.trim().length > 0;
+          var ipCell = escapeHtml(event.ip || '');
+          if (event.ip && recurringMap[event.ip]) {
+            ipCell += ' <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">' + t('logs.badge.recurring', 'Recurring') + '</span>';
+          }
           html += ''
             + '      <tr class="hover:bg-gray-50">'
             + '        <td class="px-2 py-2 whitespace-nowrap">' + escapeHtml(formatDateTime(event.occurredAt || event.createdAt)) + '</td>'
             + '        <td class="px-2 py-2 whitespace-nowrap">' + escapeHtml(event.serverName || event.serverId || '') + '</td>'
             + '        <td class="hidden sm:table-cell px-2 py-2 whitespace-nowrap">' + escapeHtml(event.jail || '') + '</td>'
-            + '        <td class="px-2 py-2 whitespace-nowrap">' + escapeHtml(event.ip || '') + '</td>'
+            + '        <td class="px-2 py-2 whitespace-nowrap">' + ipCell + '</td>'
             + '        <td class="hidden md:table-cell px-2 py-2 whitespace-nowrap">' + escapeHtml(event.country || '—') + '</td>'
             + '        <td class="px-2 py-2 whitespace-nowrap">'
             + '          <div class="flex gap-2">'
@@ -1555,6 +1773,7 @@
             + '      </tr>';
         });
         html += '    </tbody></table></div>';
+        }
       }
 
       html += '</div>';
@@ -2237,6 +2456,55 @@
         return hasBadStatus || hasIndicator;
       }
       return (hasBadStatus || hasIndicator) && !ip;
+    }
+
+    function openBanInsightsModal() {
+      var countriesContainer = document.getElementById('countryStatsContainer');
+      var recurringContainer = document.getElementById('recurringIPsContainer');
+
+      var countries = (latestBanInsights && latestBanInsights.countries) || [];
+      if (!countries.length) {
+        countriesContainer.innerHTML = '<p class="text-sm text-gray-500" data-i18n="logs.modal.insights_countries_empty">No bans recorded for this period.</p>';
+      } else {
+        var countryHTML = countries.map(function(stat) {
+          var label = stat.country || t('logs.overview.country_unknown', 'Unknown');
+          return ''
+            + '<div class="flex items-center justify-between py-2">'
+            + '  <span class="font-medium">' + escapeHtml(label) + '</span>'
+            + '  <span class="text-sm text-gray-600">' + (stat.count || 0) + '</span>'
+            + '</div>';
+        }).join('');
+        countriesContainer.innerHTML = countryHTML;
+      }
+
+      var recurring = (latestBanInsights && latestBanInsights.recurring) || [];
+      if (!recurring.length) {
+        recurringContainer.innerHTML = '<p class="text-sm text-gray-500" data-i18n="logs.modal.insights_recurring_empty">No recurring IPs detected.</p>';
+      } else {
+        var recurringHTML = recurring.map(function(stat) {
+          var countryLabel = stat.country || t('logs.overview.country_unknown', 'Unknown');
+          var lastSeenLabel = stat.lastSeen ? formatDateTime(stat.lastSeen) : '—';
+          return ''
+            + '<div class="py-2">'
+            + '  <div class="flex items-center justify-between">'
+            + '    <div>'
+            + '      <p class="font-mono text-sm text-gray-900">' + escapeHtml(stat.ip || '—') + '</p>'
+            + '      <p class="text-xs text-gray-500">' + escapeHtml(countryLabel) + '</p>'
+            + '    </div>'
+            + '    <div class="text-right">'
+            + '      <p class="text-sm font-semibold">' + (stat.count || 0) + '×</p>'
+            + '      <p class="text-xs text-gray-500">' + t('logs.overview.last_seen', 'Last seen') + ': ' + escapeHtml(lastSeenLabel) + '</p>'
+            + '    </div>'
+            + '  </div>'
+            + '</div>';
+        }).join('');
+        recurringContainer.innerHTML = recurringHTML;
+      }
+
+      if (typeof updateTranslations === 'function') {
+        updateTranslations();
+      }
+      openModal('banInsightsModal');
     }
 
     // Function: openManageJailsModal

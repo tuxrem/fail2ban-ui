@@ -29,6 +29,7 @@ import (
 	"net/smtp"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -237,6 +238,94 @@ func BanStatisticsHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"counts": stats})
+}
+
+// BanInsightsHandler returns aggregate stats for countries and recurring IPs.
+func BanInsightsHandler(c *gin.Context) {
+	var since time.Time
+	if sinceStr := c.Query("since"); sinceStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+			since = parsed
+		}
+	}
+
+	minCount := 3
+	if minCountStr := c.DefaultQuery("minCount", "3"); minCountStr != "" {
+		if parsed, err := strconv.Atoi(minCountStr); err == nil && parsed > 0 {
+			minCount = parsed
+		}
+	}
+
+	limit := 50
+	if limitStr := c.DefaultQuery("limit", "50"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	ctx := c.Request.Context()
+
+	countriesMap, err := storage.CountBanEventsByCountry(ctx, since)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	recurring, err := storage.ListRecurringIPStats(ctx, since, minCount, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	totalOverall, err := storage.CountBanEvents(ctx, time.Time{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	now := time.Now().UTC()
+
+	totalToday, err := storage.CountBanEvents(ctx, now.Add(-24*time.Hour))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	totalWeek, err := storage.CountBanEvents(ctx, now.Add(-7*24*time.Hour))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	type countryStat struct {
+		Country string `json:"country"`
+		Count   int64  `json:"count"`
+	}
+
+	countries := make([]countryStat, 0, len(countriesMap))
+	for country, count := range countriesMap {
+		countries = append(countries, countryStat{
+			Country: country,
+			Count:   count,
+		})
+	}
+
+	sort.Slice(countries, func(i, j int) bool {
+		if countries[i].Count == countries[j].Count {
+			return countries[i].Country < countries[j].Country
+		}
+		return countries[i].Count > countries[j].Count
+	})
+
+	c.JSON(http.StatusOK, gin.H{
+		"countries": countries,
+		"recurring": recurring,
+		"totals": gin.H{
+			"overall": totalOverall,
+			"today":   totalToday,
+			"week":    totalWeek,
+		},
+	})
 }
 
 // ListServersHandler returns configured Fail2ban servers.
