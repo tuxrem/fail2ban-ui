@@ -22,8 +22,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title data-i18n="page.title">Fail2ban UI Dashboard</title>
-  <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind CSS - Try local first, fallback to CDN for development -->
+  <link rel="stylesheet" href="/static/tailwind.css" onerror="
+    console.warn('Local Tailwind CSS not found, using CDN. For production, build Tailwind CSS. See README.md for instructions.');
+    var script = document.createElement('script');
+    script.src = 'https://cdn.tailwindcss.com';
+    document.head.appendChild(script);
+    this.onerror = null;
+  ">
   <!-- Font Awesome for icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Select2 CSS -->
@@ -655,14 +661,14 @@
   <!-- ******************************************************************* -->
   <!-- Jail Config Modal -->
   <div id="jailConfigModal" class="hidden fixed inset-0 overflow-y-auto" style="z-index: 60;">
-    <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+    <div class="flex items-center justify-center min-h-screen pt-4 px-2 sm:px-4 pb-20 text-center">
       <div class="fixed inset-0 transition-opacity" aria-hidden="true">
         <div class="absolute inset-0 bg-gray-500 opacity-75"></div>
       </div>
       
       <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
       
-      <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-4xl sm:w-full">
+      <div class="relative inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all my-4 sm:my-8 align-middle w-full max-w-full" style="max-width: 90vw;">
         <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
           <div class="sm:flex sm:items-start">
             <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
@@ -670,7 +676,26 @@
                 <span data-i18n="modal.filter_config">Filter Config:</span> <span id="modalJailName"></span>
               </h3>
               <div class="mt-4">
-                <textarea id="jailConfigTextarea" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 h-96 font-mono text-sm"></textarea>
+                <textarea id="jailConfigTextarea" 
+                  class="w-full border border-gray-700 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 h-96 font-mono text-sm bg-gray-900 text-green-400 resize-none overflow-auto"
+                  spellcheck="false"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-bwignore="true"
+                  data-form-type="other"
+                  data-extension-ignore="true"
+                  data-icloud-keychain-ignore="true"
+                  data-safari-autofill="false"
+                  role="textbox"
+                  aria-label="Filter configuration editor"
+                  name="filter-config-editor"
+                  inputmode="text"
+                  style="caret-color: #4ade80; line-height: 1.5; tab-size: 2; width: 100%; min-width: 100%; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none;"
+                  wrap="off"
+                  onfocus="preventExtensionInterference(this);"></textarea>
               </div>
             </div>
           </div>
@@ -2512,10 +2537,38 @@
     //*                Filter-mod and config-mod actions :              *
     //*******************************************************************
 
+    // Prevent browser extensions (like iCloud Passwords) from interfering
+    function preventExtensionInterference(element) {
+      if (!element) return;
+      try {
+        // Ensure control property exists to prevent "Cannot read properties of undefined" errors
+        if (!element.control) {
+          Object.defineProperty(element, 'control', {
+            value: {
+              type: element.type || 'textarea',
+              name: element.name || 'filter-config-editor',
+              form: null,
+              autocomplete: 'off'
+            },
+            writable: false,
+            enumerable: false,
+            configurable: true
+          });
+        }
+        // Prevent extensions from adding their own properties
+        Object.seal(element.control);
+      } catch (e) {
+        // Silently ignore errors
+      }
+    }
+
     function openJailConfigModal(jailName) {
       currentJailForConfig = jailName;
       var textArea = document.getElementById('jailConfigTextarea');
       textArea.value = '';
+
+      // Prevent browser extensions from interfering
+      preventExtensionInterference(textArea);
 
       document.getElementById('modalJailName').textContent = jailName;
 
@@ -2531,7 +2584,13 @@
             return;
           }
           textArea.value = data.config;
+          // Prevent extension interference before opening modal
+          preventExtensionInterference(textArea);
           openModal('jailConfigModal');
+          // Call again after a short delay to ensure it's set after modal is visible
+          setTimeout(function() {
+            preventExtensionInterference(textArea);
+          }, 100);
         })
         .catch(function(err) {
           showToast("Error: " + err, 'error');

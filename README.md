@@ -55,7 +55,7 @@ Developed by **[Swissmakers GmbH](https://swissmakers.ch)**.
 
 ✅ **Mobile-Friendly & Responsive UI / Fast**
 - Optimized for **mobile & desktop**
-- Powered by **Bootstrap 5**
+- Powered by **Tailwind CSS** (works offline when built locally)
 - **Go-based backend** ensures minimal resource usage
 - Parallel execution for improved performance on remote connections
 
@@ -91,9 +91,23 @@ To install and run directly on the system:
 ```bash
 git clone https://github.com/swissmakers/fail2ban-ui.git /opt/fail2ban-ui
 cd /opt/fail2ban-ui
+
+# Build Tailwind CSS for production (optional but recommended)
+# This requires Node.js and npm to be installed
+./build-tailwind.sh
+
+# Build Go application
 go build -o fail2ban-ui ./cmd/server/main.go
 ...
 ```
+
+**📌 Note on Tailwind CSS:**
+- For **production/offline use**, build Tailwind CSS using `./build-tailwind.sh` before building the application
+- This creates a local CSS file at `pkg/web/static/tailwind.css` that works offline
+- The build script uses **Tailwind CSS v3** (latest v3.x, matches CDN version)
+- If the local file is not found, the application will automatically fall back to the CDN (requires internet connection)
+- The build script requires **Node.js** and **npm** to be installed
+- The script works for both fresh installations and existing development environments
 
 ---
 

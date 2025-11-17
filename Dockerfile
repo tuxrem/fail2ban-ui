@@ -42,6 +42,8 @@ COPY --from=builder /app/fail2ban-ui /app/fail2ban-ui
 RUN chown fail2ban:0 /app/fail2ban-ui && chmod +x /app/fail2ban-ui
 COPY --from=builder /app/pkg/web/templates /app/templates
 COPY --from=builder /app/internal/locales /app/locales
+# Copy static files (Tailwind CSS) if they exist
+COPY --from=builder /app/pkg/web/static /app/static
 
 # Set environment variables
 ENV CONTAINER=true

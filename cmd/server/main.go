@@ -64,10 +64,12 @@ func main() {
 		// In container, templates are assumed to be in /app/templates
 		router.LoadHTMLGlob("/app/templates/*")
 		router.Static("/locales", "/app/locales")
+		router.Static("/static", "/app/static")
 	} else {
 		// When running locally, load templates from pkg/web/templates
 		router.LoadHTMLGlob("pkg/web/templates/*")
 		router.Static("/locales", "./internal/locales")
+		router.Static("/static", "./pkg/web/static")
 	}
 
 	// Register all application routes, including the static files and templates.
