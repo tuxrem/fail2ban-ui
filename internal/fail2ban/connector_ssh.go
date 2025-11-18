@@ -426,52 +426,51 @@ func (sc *SSHConnector) GetFilters(ctx context.Context) ([]string, error) {
 			}
 		}
 	}
+	sort.Strings(filters)
 	return filters, nil
 }
 
 // TestFilter implements Connector.
-func (sc *SSHConnector) TestFilter(ctx context.Context, filterName string, logLines []string) ([]string, error) {
-	if len(logLines) == 0 {
-		return []string{}, nil
+func (sc *SSHConnector) TestFilter(ctx context.Context, filterName string, logLines []string) (string, error) {
+	cleaned := normalizeLogLines(logLines)
+	if len(cleaned) == 0 {
+		return "No log lines provided.\n", nil
 	}
 
 	// Sanitize filter name to prevent path traversal
 	filterName = strings.TrimSpace(filterName)
 	if filterName == "" {
-		return nil, fmt.Errorf("filter name cannot be empty")
+		return "", fmt.Errorf("filter name cannot be empty")
 	}
 	// Remove any path components
 	filterName = strings.ReplaceAll(filterName, "/", "")
 	filterName = strings.ReplaceAll(filterName, "..", "")
 
-	// Use fail2ban-regex with filter name directly - it handles everything
-	// Format: fail2ban-regex "log line" /etc/fail2ban/filter.d/filter-name.conf
 	filterPath := fmt.Sprintf("/etc/fail2ban/filter.d/%s.conf", filterName)
 
-	var matches []string
-	for _, logLine := range logLines {
-		logLine = strings.TrimSpace(logLine)
-		if logLine == "" {
-			continue
-		}
-		// Use fail2ban-regex: log line as string, filter file path
-		escapedLine := strconv.Quote(logLine)
-		escapedPath := strconv.Quote(filterPath)
-		cmd := fmt.Sprintf("echo %s | fail2ban-regex - %s", escapedLine, escapedPath)
-		out, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", cmd})
-		// fail2ban-regex returns success (exit 0) if the line matches
-		// Look for "Lines: 1 lines, 0 ignored, 1 matched" or similar success indicators
-		if err == nil {
-			// Check if output indicates a match
-			output := strings.ToLower(out)
-			if strings.Contains(output, "matched") ||
-				strings.Contains(output, "success") ||
-				strings.Contains(output, "1 matched") {
-				matches = append(matches, logLine)
-			}
-		}
+	const heredocMarker = "F2B_FILTER_TEST_LOG"
+	logContent := strings.Join(cleaned, "\n")
+
+	script := fmt.Sprintf(`
+set -e
+FILTER_PATH=%[1]q
+if [ ! -f "$FILTER_PATH" ]; then
+  echo "Filter not found: $FILTER_PATH" >&2
+  exit 1
+fi
+TMPFILE=$(mktemp /tmp/fail2ban-test-XXXXXX.log)
+trap 'rm -f "$TMPFILE"' EXIT
+cat <<'%[2]s' > "$TMPFILE"
+%[3]s
+%[2]s
+fail2ban-regex "$TMPFILE" "$FILTER_PATH" || true
+`, filterPath, heredocMarker, logContent)
+
+	out, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", script})
+	if err != nil {
+		return "", err
 	}
-	return matches, nil
+	return out, nil
 }
 
 // parseJailConfigContent parses jail configuration content and returns JailInfo slice.

@@ -823,12 +823,12 @@ func TestFilterHandler(c *gin.Context) {
 		return
 	}
 
-	matches, err := conn.TestFilter(c.Request.Context(), req.FilterName, req.LogLines)
+	output, err := conn.TestFilter(c.Request.Context(), req.FilterName, req.LogLines)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to test filter: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"matches": matches})
+	c.JSON(http.StatusOK, gin.H{"output": output})
 }
 
 // ApplyFail2banSettings updates /etc/fail2ban/jail.local [DEFAULT] with our JSON

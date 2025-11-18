@@ -305,7 +305,7 @@
         <button class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors" onclick="testSelectedFilter()" data-i18n="filter_debug.test_filter">Test Filter</button>
       </div>
 
-      <div id="testResults" class="bg-white rounded-lg shadow p-6"></div>
+      <div id="testResults" class="hidden bg-gray-900 rounded-lg shadow p-6 text-white font-mono text-sm"></div>
     </div>
   <!-- ********************* Filter-Debug Page END *********************** -->
 
@@ -677,7 +677,7 @@
               </h3>
               <div class="mt-4">
                 <textarea id="jailConfigTextarea" 
-                  class="w-full border border-gray-700 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 h-96 font-mono text-sm bg-gray-900 text-green-400 resize-none overflow-auto"
+                  class="w-full border border-gray-700 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-96 font-mono text-sm bg-gray-900 text-white resize-none overflow-auto"
                   spellcheck="false"
                   autocomplete="off"
                   autocorrect="off"
@@ -693,7 +693,7 @@
                   aria-label="Filter configuration editor"
                   name="filter-config-editor"
                   inputmode="text"
-                  style="caret-color: #4ade80; line-height: 1.5; tab-size: 2; width: 100%; min-width: 100%; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none;"
+                  style="caret-color: #ffffff; line-height: 1.5; tab-size: 2; width: 100%; min-width: 100%; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none;"
                   wrap="off"
                   onfocus="preventExtensionInterference(this);"></textarea>
               </div>
@@ -866,7 +866,7 @@
                 <span data-i18n="logs.modal.whois_title">Whois Information</span> - <span id="whoisModalIP"></span>
               </h3>
               <div class="mt-4">
-                <pre id="whoisModalContent" class="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-900 text-green-400 font-mono text-xs overflow-x-auto" style="max-height: 70vh; white-space: pre-wrap; word-wrap: break-word;"></pre>
+                <pre id="whoisModalContent" class="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-900 text-white font-mono text-xs overflow-x-auto" style="max-height: 70vh; white-space: pre-wrap; word-wrap: break-word;"></pre>
               </div>
             </div>
           </div>
@@ -898,7 +898,7 @@
                 <span data-i18n="logs.modal.jail">Jail:</span> <span id="logsModalJail" class="font-semibold"></span>
               </p>
               <div class="mt-4">
-                <pre id="logsModalContent" class="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-900 text-green-400 font-mono text-xs overflow-x-auto" style="max-height: 70vh; white-space: pre-wrap; word-wrap: break-word;"></pre>
+                <pre id="logsModalContent" class="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-900 text-white font-mono text-xs overflow-x-auto" style="max-height: 70vh; white-space: pre-wrap; word-wrap: break-word;"></pre>
               </div>
             </div>
           </div>
@@ -3085,17 +3085,27 @@
     // Called when clicking "Test Filter" button
     function testSelectedFilter() {
       const filterName = document.getElementById('filterSelect').value;
-      const lines = document.getElementById('logLinesTextarea').value.split('\n');
+      const lines = document.getElementById('logLinesTextarea').value.split('\n').filter(line => line.trim() !== '');
       
       if (!filterName) {
         showToast('Please select a filter.', 'info');
         return;
       }
 
+      if (lines.length === 0) {
+        showToast('Please enter at least one log line to test.', 'info');
+        return;
+      }
+
+      // Hide results initially
+      const testResultsEl = document.getElementById('testResults');
+      testResultsEl.classList.add('hidden');
+      testResultsEl.innerHTML = '';
+
       showLoading(true);
-      fetch('/api/filters/test', {
+      fetch(withServerParam('/api/filters/test'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: serverHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           filterName: filterName,
           logLines: lines
@@ -3107,7 +3117,7 @@
             showToast('Error testing filter: ' + data.error, 'error');
             return;
           }
-          renderTestResults(data.matches);
+          renderTestResults(data.output || '');
         })
         .catch(err => {
           showToast('Error testing filter: ' + err, 'error');
@@ -3115,22 +3125,21 @@
         .finally(() => showLoading(false));
     }
 
-    function renderTestResults(matches) {
-      let html = '<h5 class="text-lg font-medium text-gray-900 mb-4" data-i18n="filter_debug.test_results_title">Test Results</h5>';
-      if (!matches || matches.length === 0) {
-        html += '<p class="text-gray-500" data-i18n="filter_debug.no_matches">No matches found.</p>';
+    function renderTestResults(output) {
+      const testResultsEl = document.getElementById('testResults');
+      let html = '<h5 class="text-lg font-medium text-white mb-4" data-i18n="filter_debug.test_results_title">Test Results</h5>';
+      if (!output || output.trim() === '') {
+        html += '<p class="text-gray-400" data-i18n="filter_debug.no_matches">No output received.</p>';
       } else {
-        html += '<ul>';
-        matches.forEach(m => {
-          html += '<li>' + m + '</li>';
-        });
-        html += '</ul>';
+        html += '<pre class="text-white whitespace-pre-wrap overflow-x-auto">' + escapeHtml(output) + '</pre>';
       }
-      document.getElementById('testResults').innerHTML = html;
+      testResultsEl.innerHTML = html;
+      testResultsEl.classList.remove('hidden');
     }
 
     // When showing the filter section
     function showFilterSection() {
+      const testResultsEl = document.getElementById('testResults');
       if (!currentServerId) {
         var notice = document.getElementById('filterNotice');
         if (notice) {
@@ -3139,11 +3148,13 @@
         }
         document.getElementById('filterSelect').innerHTML = '';
         document.getElementById('logLinesTextarea').value = '';
-        document.getElementById('testResults').innerHTML = '';
+        testResultsEl.innerHTML = '';
+        testResultsEl.classList.add('hidden');
         return;
       }
       loadFilters();
-      document.getElementById('testResults').innerHTML = '';
+      testResultsEl.innerHTML = '';
+      testResultsEl.classList.add('hidden');
       document.getElementById('logLinesTextarea').value = '';
     }
 

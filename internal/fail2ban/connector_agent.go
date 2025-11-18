@@ -278,16 +278,16 @@ func (ac *AgentConnector) GetFilters(ctx context.Context) ([]string, error) {
 }
 
 // TestFilter implements Connector.
-func (ac *AgentConnector) TestFilter(ctx context.Context, filterName string, logLines []string) ([]string, error) {
+func (ac *AgentConnector) TestFilter(ctx context.Context, filterName string, logLines []string) (string, error) {
 	payload := map[string]any{
 		"filterName": filterName,
 		"logLines":   logLines,
 	}
 	var resp struct {
-		Matches []string `json:"matches"`
+		Output string `json:"output"`
 	}
 	if err := ac.post(ctx, "/v1/filters/test", payload, &resp); err != nil {
-		return nil, err
+		return "", err
 	}
-	return resp.Matches, nil
+	return resp.Output, nil
 }
