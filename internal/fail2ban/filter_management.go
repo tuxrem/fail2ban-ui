@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -76,38 +77,57 @@ func GetFiltersLocal() ([]string, error) {
 			filters = append(filters, name)
 		}
 	}
+	sort.Strings(filters)
 	return filters, nil
 }
 
+func normalizeLogLines(logLines []string) []string {
+	var cleaned []string
+	for _, line := range logLines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	return cleaned
+}
+
 // TestFilterLocal tests a filter against log lines using fail2ban-regex
-func TestFilterLocal(filterName string, logLines []string) ([]string, error) {
-	if len(logLines) == 0 {
-		return []string{}, nil
+// Returns the full output of fail2ban-regex command
+func TestFilterLocal(filterName string, logLines []string) (string, error) {
+	cleaned := normalizeLogLines(logLines)
+	if len(cleaned) == 0 {
+		return "No log lines provided.\n", nil
 	}
 	filterPath := filepath.Join("/etc/fail2ban/filter.d", filterName+".conf")
 	if _, err := os.Stat(filterPath); err != nil {
-		return nil, fmt.Errorf("filter %s not found: %w", filterName, err)
+		return "", fmt.Errorf("filter %s not found: %w", filterName, err)
 	}
-	// Use fail2ban-regex with filter file directly - it handles everything
-	// Format: fail2ban-regex "log line" /etc/fail2ban/filter.d/filter-name.conf
-	var matches []string
-	for _, logLine := range logLines {
-		logLine = strings.TrimSpace(logLine)
-		if logLine == "" {
-			continue
-		}
-		cmd := exec.Command("fail2ban-regex", logLine, filterPath)
-		out, err := cmd.CombinedOutput()
-		output := strings.ToLower(string(out))
-		// fail2ban-regex returns success (exit 0) if the line matches
-		// Look for "matched" or "success" in output
-		if err == nil {
-			if strings.Contains(output, "matched") ||
-				strings.Contains(output, "success") ||
-				strings.Contains(output, "1 matched") {
-				matches = append(matches, logLine)
-			}
+
+	// Create a temporary log file with all log lines
+	tmpFile, err := os.CreateTemp("", "fail2ban-test-*.log")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temporary log file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// Write all log lines to the temp file
+	for _, logLine := range cleaned {
+		if _, err := tmpFile.WriteString(logLine + "\n"); err != nil {
+			return "", fmt.Errorf("failed to write to temporary log file: %w", err)
 		}
 	}
-	return matches, nil
+	tmpFile.Close()
+
+	// Run fail2ban-regex with the log file and filter config
+	// Format: fail2ban-regex /path/to/logfile /etc/fail2ban/filter.d/filter-name.conf
+	cmd := exec.Command("fail2ban-regex", tmpFile.Name(), filterPath)
+	out, _ := cmd.CombinedOutput()
+	output := string(out)
+
+	// Return the full output regardless of exit code (fail2ban-regex may exit non-zero for no matches)
+	// The output contains useful information even when there are no matches
+	return output, nil
 }
