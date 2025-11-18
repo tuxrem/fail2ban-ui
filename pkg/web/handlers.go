@@ -548,6 +548,8 @@ func HandleBanNotification(ctx context.Context, server config.Fail2banServer, ip
 		log.Printf("⚠️ Failed to record ban event: %v", err)
 	}
 
+	evaluateAdvancedActions(ctx, settings, server, ip)
+
 	// Check if country is in alert list
 	displayCountry := country
 	if displayCountry == "" {
@@ -690,6 +692,72 @@ func ManageJailsHandler(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"jails": jails})
+}
+
+// ListPermanentBlocksHandler exposes the permanent block log.
+func ListPermanentBlocksHandler(c *gin.Context) {
+	limit := 100
+	if limitStr := c.DefaultQuery("limit", "100"); limitStr != "" {
+		if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+	records, err := storage.ListPermanentBlocks(c.Request.Context(), limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"blocks": records})
+}
+
+// AdvancedActionsTestHandler allows manual block/unblock tests.
+func AdvancedActionsTestHandler(c *gin.Context) {
+	var req struct {
+		Action   string `json:"action"`
+		IP       string `json:"ip"`
+		ServerID string `json:"serverId"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
+		return
+	}
+	if req.IP == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ip is required"})
+		return
+	}
+	action := strings.ToLower(req.Action)
+	if action == "" {
+		action = "block"
+	}
+	if action != "block" && action != "unblock" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "action must be block or unblock"})
+		return
+	}
+
+	settings := config.GetSettings()
+	server := config.Fail2banServer{}
+	if req.ServerID != "" {
+		if srv, ok := config.GetServerByID(req.ServerID); ok {
+			server = srv
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "server not found"})
+			return
+		}
+	}
+
+	err := runAdvancedIntegrationAction(
+		c.Request.Context(),
+		action,
+		req.IP,
+		settings,
+		server,
+		map[string]any{"manual": true},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Action %s completed for %s", action, req.IP)})
 }
 
 // UpdateJailManagementHandler updates the enabled state for each jail.
