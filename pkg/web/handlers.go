@@ -1268,7 +1268,6 @@ func buildModernEmailBody(title, intro string, details []emailDetail, whoisHTML,
     .email-header { background:linear-gradient(135deg,#004cff 0%%,#6c2bd9 100%%); color:#ffffff; padding:32px 28px; text-align:center; }
     .email-header-brand { margin:0 0 8px; font-size:11px; letter-spacing:0.3em; text-transform:uppercase; opacity:0.9; font-weight:600; }
     .email-header-title { margin:0 0 10px; font-size:26px; font-weight:700; line-height:1.2; }
-    .email-header-subtitle { margin:0; font-size:15px; opacity:0.95; line-height:1.5; }
     .email-body { padding:36px 28px; }
     .email-intro { font-size:16px; line-height:1.7; margin:0 0 28px; color:#4b5563; }
     .email-details-wrapper { background:#f9fafb; border-radius:12px; padding:20px; margin:0 0 32px; border:1px solid #e5e7eb; }
@@ -1291,7 +1290,6 @@ func buildModernEmailBody(title, intro string, details []emailDetail, whoisHTML,
       .email-wrapper { padding:12px 8px; }
       .email-header { padding:24px 20px; }
       .email-header-title { font-size:22px; }
-      .email-header-subtitle { font-size:14px; }
       .email-body { padding:28px 20px; }
       .email-intro { font-size:15px; }
       .email-details-wrapper { padding:16px; }
@@ -1311,7 +1309,6 @@ func buildModernEmailBody(title, intro string, details []emailDetail, whoisHTML,
       <div class="email-header">
         <p class="email-header-brand">Fail2Ban UI</p>
         <h1 class="email-header-title">%s</h1>
-        <p class="email-header-subtitle">%s</p>
       </div>
       <div class="email-body">
         <p class="email-intro">%s</p>
@@ -1334,7 +1331,7 @@ func buildModernEmailBody(title, intro string, details []emailDetail, whoisHTML,
     </div>
   </div>
 </body>
-</html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(intro), html.EscapeString(intro), detailRows, html.EscapeString(whoisTitle), whoisHTML, html.EscapeString(logsTitle), logsHTML, html.EscapeString(footerText), year)
+</html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(intro), detailRows, html.EscapeString(whoisTitle), whoisHTML, html.EscapeString(logsTitle), logsHTML, html.EscapeString(footerText), year)
 }
 
 func renderEmailDetails(details []emailDetail) string {
