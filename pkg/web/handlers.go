@@ -857,24 +857,24 @@ func GetSettingsHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("GetSettingsHandler called (handlers.go)") // entry point
 	s := config.GetSettings()
-	
+
 	// Check if PORT environment variable is set
 	envPort, envPortSet := config.GetPortFromEnv()
-	
+
 	// Create response with PORT env info
 	response := make(map[string]interface{})
 	responseBytes, _ := json.Marshal(s)
 	json.Unmarshal(responseBytes, &response)
-	
+
 	// Add PORT environment variable information
 	response["portFromEnv"] = envPort
 	response["portEnvSet"] = envPortSet
-	
+
 	// If PORT env is set, override the port value in response
 	if envPortSet {
 		response["port"] = envPort
 	}
-	
+
 	c.JSON(http.StatusOK, response)
 }
 
@@ -1131,6 +1131,19 @@ func getEmailStyle() string {
 	return "modern"
 }
 
+// isLOTRModeActive checks if LOTR mode is enabled in alert countries
+func isLOTRModeActive(alertCountries []string) bool {
+	if len(alertCountries) == 0 {
+		return false
+	}
+	for _, country := range alertCountries {
+		if strings.EqualFold(country, "LOTR") {
+			return true
+		}
+	}
+	return false
+}
+
 // *******************************************************************
 // *                 Unified Email Sending Function :                *
 // *******************************************************************
@@ -1306,6 +1319,101 @@ func buildClassicEmailBody(title, intro string, details []emailDetail, whoisHTML
     </div>
 </body>
 </html>`, html.EscapeString(title), html.EscapeString(title), html.EscapeString(intro), detailRows, html.EscapeString(whoisTitle), whoisHTML, html.EscapeString(logsTitle), logsHTML, html.EscapeString(footerText), html.EscapeString(supportEmail), html.EscapeString(supportEmail), year)
+}
+
+// buildLOTREmailBody creates the dramatic LOTR-themed email template with "You Shall Not Pass" styling
+func buildLOTREmailBody(title, intro string, details []emailDetail, whoisHTML, logsHTML, whoisTitle, logsTitle, footerText string) string {
+	detailRows := renderEmailDetails(details)
+	year := strconv.Itoa(time.Now().Year())
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <title>%s</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { margin:0; padding:0; background: linear-gradient(135deg, #0d2818 0%%, #1a4d2e 50%%, #2d0a4f 100%%); font-family: Georgia, "Times New Roman", serif; color:#f4e8d0; line-height:1.6; -webkit-font-smoothing:antialiased; }
+    .email-wrapper { width:100%%; padding:20px 10px; background: linear-gradient(135deg, #0d2818 0%%, #1a4d2e 50%%, #2d0a4f 100%%); }
+    .email-container { max-width:640px; margin:0 auto; background:#f4e8d0; border:4px solid #d4af37; border-radius:12px; box-shadow:0 8px 32px rgba(0,0,0,0.6), inset 0 0 40px rgba(212,175,55,0.1); overflow:hidden; position:relative; }
+    .email-container::before { content:''; position:absolute; top:0; left:0; right:0; bottom:0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(139,115,85,0.03) 2px, rgba(139,115,85,0.03) 4px); pointer-events:none; }
+    .email-header { background: linear-gradient(180deg, #c1121f 0%%, #ff6b35 30%%, #d4af37 70%%, #1a4d2e 100%%); color:#ffffff; padding:40px 28px; text-align:center; position:relative; overflow:hidden; }
+    .email-header::before { content:''; position:absolute; top:0; left:0; right:0; bottom:0; background: radial-gradient(circle at center, rgba(255,255,255,0.1) 0%%, transparent 70%%); animation: fireFlicker 3s ease-in-out infinite; }
+    @keyframes fireFlicker { 0%%,100%% { opacity:0.6; } 50%% { opacity:1; } }
+    .email-header-brand { margin:0 0 12px; font-size:12px; letter-spacing:0.4em; text-transform:uppercase; opacity:0.9; font-weight:600; font-family:'Cinzel', serif; position:relative; z-index:1; }
+    .email-header-title { margin:20px 0; font-size:42px; font-weight:700; line-height:1.1; text-shadow: 0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(255,107,53,0.6), 0 0 60px rgba(193,18,31,0.4); font-family:'Cinzel', serif; letter-spacing:0.1em; position:relative; z-index:1; animation: textGlow 2s ease-in-out infinite; }
+    @keyframes textGlow { 0%%,100%% { text-shadow: 0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(255,107,53,0.6), 0 0 60px rgba(193,18,31,0.4); } 50%% { text-shadow: 0 0 30px rgba(255,255,255,1), 0 0 60px rgba(255,107,53,0.8), 0 0 90px rgba(193,18,31,0.6); } }
+    .ring-divider { text-align:center; margin:30px 0; position:relative; }
+    .ring-divider::before { content:'⚔'; position:absolute; left:20%%; top:50%%; transform:translateY(-50%%); font-size:24px; color:#d4af37; background:#f4e8d0; padding:0 15px; }
+    .ring-divider::after { content:'⚔'; position:absolute; right:20%%; top:50%%; transform:translateY(-50%%); font-size:24px; color:#d4af37; background:#f4e8d0; padding:0 15px; }
+    .ring-divider-line { height:3px; background:linear-gradient(90deg, transparent 0%%, #d4af37 20%%, #d4af37 80%%, transparent 100%%); margin:0 25%%; }
+    .email-body { padding:36px 28px; background:#f4e8d0; color:#3d2817; }
+    .email-intro { font-size:18px; line-height:1.8; margin:0 0 28px; color:#3d2817; font-style:italic; text-align:center; }
+    .email-details-wrapper { background:#e8d5b7; border:3px solid #8b7355; border-radius:8px; padding:24px; margin:0 0 32px; box-shadow:inset 0 2px 4px rgba(0,0,0,0.1); }
+    .email-details-wrapper p { margin:12px 0; font-size:15px; line-height:1.7; color:#3d2817; }
+    .email-details-wrapper p:first-child { margin-top:0; }
+    .email-details-wrapper p:last-child { margin-bottom:0; }
+    .email-detail-label { font-weight:700; color:#1a4d2e; margin-right:8px; font-family:'Cinzel', serif; }
+    .email-section { margin:36px 0 0; }
+    .email-section-title { font-size:16px; text-transform:uppercase; letter-spacing:0.2em; color:#1a4d2e; margin:0 0 16px; font-weight:700; font-family:'Cinzel', serif; border-bottom:2px solid #d4af37; padding-bottom:8px; }
+    .email-terminal { background:#1a1a1a; color:#d4af37; padding:20px; font-family:"Courier New", Courier, monospace; border-radius:8px; font-size:13px; line-height:1.7; white-space:pre-wrap; word-break:break-word; overflow-x:auto; margin:0; border:2px solid #8b7355; box-shadow:inset 0 0 20px rgba(212,175,55,0.1); }
+    .email-log-stack { background:#0f0f0f; border-radius:8px; padding:16px; border:2px solid #8b7355; }
+    .email-log-line { font-family:"Courier New", Courier, monospace; font-size:12px; line-height:1.6; color:#d4af37; padding:8px 12px; border-radius:6px; margin:0 0 6px; background:rgba(212,175,55,0.1); border-left:3px solid #d4af37; }
+    .email-log-line:last-child { margin-bottom:0; }
+    .email-log-line-alert { background:rgba(193,18,31,0.3); color:#ff6b35; border-left-color:#c1121f; }
+    .email-muted { color:#8b7355; font-size:14px; line-height:1.6; font-style:italic; }
+    .email-footer { border-top:3px solid #d4af37; padding:24px 28px; font-size:13px; color:#3d2817; text-align:center; background:#e8d5b7; font-family:'Cinzel', serif; }
+    .email-footer-text { margin:0 0 8px; font-weight:600; }
+    .email-footer-copyright { margin:0; font-size:11px; color:#8b7355; }
+    @media only screen and (max-width:600px) {
+      .email-wrapper { padding:12px 8px; }
+      .email-header { padding:30px 20px; }
+      .email-header-title { font-size:32px; }
+      .email-body { padding:28px 20px; }
+      .email-intro { font-size:16px; }
+      .email-details-wrapper { padding:20px; }
+      .email-footer { padding:20px 16px; }
+    }
+    @media only screen and (max-width:480px) {
+      .email-header-title { font-size:28px; }
+      .email-body { padding:24px 16px; }
+      .email-details-wrapper { padding:16px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="email-container">
+      <div class="email-header">
+        <p class="email-header-brand">Middle-earth Security</p>
+        <h1 class="email-header-title">YOU SHALL NOT PASS</h1>
+        <div class="ring-divider">
+          <div class="ring-divider-line"></div>
+        </div>
+      </div>
+      <div class="email-body">
+        <p class="email-intro">%s</p>
+        <div class="email-details-wrapper">
+          %s
+        </div>
+        <div class="email-section">
+          <p class="email-section-title">%s</p>
+          %s
+        </div>
+        <div class="email-section">
+          <p class="email-section-title">%s</p>
+          %s
+        </div>
+      </div>
+      <div class="email-footer">
+        <p class="email-footer-text">%s</p>
+        <p class="email-footer-copyright">© %s Swissmakers GmbH. All rights reserved.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`, html.EscapeString(title), html.EscapeString(intro), detailRows, html.EscapeString(whoisTitle), whoisHTML, html.EscapeString(logsTitle), logsHTML, html.EscapeString(footerText), year)
 }
 
 // buildModernEmailBody creates the modern responsive email template (new design)
@@ -1497,38 +1605,112 @@ func sendBanAlert(ip, jail, hostname, failures, whois, logs, country string, set
 		lang = "en"
 	}
 
-	// Get translations
-	subject := fmt.Sprintf("[Fail2Ban] %s: %s %s %s %s", jail,
-		getEmailTranslation(lang, "email.ban.subject.banned"),
-		ip,
-		getEmailTranslation(lang, "email.ban.subject.from"),
-		hostname)
+	// Check if LOTR mode is active for subject line
+	isLOTRMode := isLOTRModeActive(settings.AlertCountries)
 
-	details := []emailDetail{
-		{Label: getEmailTranslation(lang, "email.ban.details.banned_ip"), Value: ip},
-		{Label: getEmailTranslation(lang, "email.ban.details.jail"), Value: jail},
-		{Label: getEmailTranslation(lang, "email.ban.details.hostname"), Value: hostname},
-		{Label: getEmailTranslation(lang, "email.ban.details.failed_attempts"), Value: failures},
-		{Label: getEmailTranslation(lang, "email.ban.details.country"), Value: country},
-		{Label: getEmailTranslation(lang, "email.ban.details.timestamp"), Value: time.Now().UTC().Format(time.RFC3339)},
+	// Get translations
+	var subject string
+	if isLOTRMode {
+		subject = fmt.Sprintf("[Middle-earth] The Dark Lord's Servant Has Been Banished: %s from %s", ip, hostname)
+	} else {
+		subject = fmt.Sprintf("[Fail2Ban] %s: %s %s %s %s", jail,
+			getEmailTranslation(lang, "email.ban.subject.banned"),
+			ip,
+			getEmailTranslation(lang, "email.ban.subject.from"),
+			hostname)
 	}
 
-	title := getEmailTranslation(lang, "email.ban.title")
-	intro := getEmailTranslation(lang, "email.ban.intro")
-	whoisTitle := getEmailTranslation(lang, "email.ban.whois_title")
-	logsTitle := getEmailTranslation(lang, "email.ban.logs_title")
-	footerText := getEmailTranslation(lang, "email.footer.text")
-	supportEmail := "support@swissmakers.ch"
-
-	// Determine email style
+	// Determine email style and LOTR mode
 	emailStyle := getEmailStyle()
 	isModern := emailStyle == "modern"
+
+	// Get translations - use LOTR translations if in LOTR mode
+	var title, intro, whoisTitle, logsTitle, footerText string
+	if isLOTRMode {
+		title = getEmailTranslation(lang, "lotr.email.title")
+		if title == "lotr.email.title" {
+			title = "A Dark Servant Has Been Banished"
+		}
+		intro = getEmailTranslation(lang, "lotr.email.intro")
+		if intro == "lotr.email.intro" {
+			intro = "The guardians of Middle-earth have detected a threat and banished it from the realm."
+		}
+		whoisTitle = getEmailTranslation(lang, "email.ban.whois_title")
+		logsTitle = getEmailTranslation(lang, "email.ban.logs_title")
+		footerText = getEmailTranslation(lang, "lotr.email.footer")
+		if footerText == "lotr.email.footer" {
+			footerText = "May the servers be protected. One ban to rule them all."
+		}
+	} else {
+		title = getEmailTranslation(lang, "email.ban.title")
+		intro = getEmailTranslation(lang, "email.ban.intro")
+		whoisTitle = getEmailTranslation(lang, "email.ban.whois_title")
+		logsTitle = getEmailTranslation(lang, "email.ban.logs_title")
+		footerText = getEmailTranslation(lang, "email.footer.text")
+	}
+	supportEmail := "support@swissmakers.ch"
+
+	// Format details with LOTR terminology if in LOTR mode
+	var details []emailDetail
+	if isLOTRMode {
+		// Transform labels to LOTR terminology
+		bannedIPLabel := getEmailTranslation(lang, "lotr.email.details.dark_servant_location")
+		if bannedIPLabel == "lotr.email.details.dark_servant_location" {
+			bannedIPLabel = "The Dark Servant's Location"
+		}
+		jailLabel := getEmailTranslation(lang, "lotr.email.details.realm_protection")
+		if jailLabel == "lotr.email.details.realm_protection" {
+			jailLabel = "The Realm of Protection"
+		}
+		countryLabelKey := getEmailTranslation(lang, "lotr.email.details.origins")
+		var countryLabel string
+		if countryLabelKey == "lotr.email.details.origins" {
+			// Use default English format
+			if country != "" {
+				countryLabel = fmt.Sprintf("Origins from the %s Lands", country)
+			} else {
+				countryLabel = "Origins from Unknown Lands"
+			}
+		} else {
+			// Use translated label and append country
+			if country != "" {
+				countryLabel = fmt.Sprintf("%s %s", countryLabelKey, country)
+			} else {
+				countryLabel = fmt.Sprintf("%s Unknown", countryLabelKey)
+			}
+		}
+		timestampLabel := getEmailTranslation(lang, "lotr.email.details.banished_at")
+		if timestampLabel == "lotr.email.details.banished_at" {
+			timestampLabel = "Banished at the"
+		}
+
+		details = []emailDetail{
+			{Label: bannedIPLabel, Value: ip},
+			{Label: jailLabel, Value: jail},
+			{Label: getEmailTranslation(lang, "email.ban.details.hostname"), Value: hostname},
+			{Label: getEmailTranslation(lang, "email.ban.details.failed_attempts"), Value: failures},
+			{Label: countryLabel, Value: ""},
+			{Label: timestampLabel, Value: time.Now().UTC().Format(time.RFC3339)},
+		}
+	} else {
+		details = []emailDetail{
+			{Label: getEmailTranslation(lang, "email.ban.details.banned_ip"), Value: ip},
+			{Label: getEmailTranslation(lang, "email.ban.details.jail"), Value: jail},
+			{Label: getEmailTranslation(lang, "email.ban.details.hostname"), Value: hostname},
+			{Label: getEmailTranslation(lang, "email.ban.details.failed_attempts"), Value: failures},
+			{Label: getEmailTranslation(lang, "email.ban.details.country"), Value: country},
+			{Label: getEmailTranslation(lang, "email.ban.details.timestamp"), Value: time.Now().UTC().Format(time.RFC3339)},
+		}
+	}
 
 	whoisHTML := formatWhoisForEmail(whois, lang, isModern)
 	logsHTML := formatLogsForEmail(ip, logs, lang, isModern)
 
 	var body string
-	if isModern {
+	if isLOTRMode {
+		// Use LOTR-themed email template
+		body = buildLOTREmailBody(title, intro, details, whoisHTML, logsHTML, whoisTitle, logsTitle, footerText)
+	} else if isModern {
 		body = buildModernEmailBody(title, intro, details, whoisHTML, logsHTML, whoisTitle, logsTitle, footerText)
 	} else {
 		body = buildClassicEmailBody(title, intro, details, whoisHTML, logsHTML, whoisTitle, logsTitle, footerText, supportEmail)

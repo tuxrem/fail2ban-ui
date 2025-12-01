@@ -253,7 +253,18 @@
     "email.test.details.triggered_at": "Déclenché à",
     "email.test.whois_no_data": "Aucune recherche WHOIS n'est exécutée pour les emails de test.",
     "email.test.sample_logs": "2025-01-01T12:00:00Z Entrée de journal d'exemple de Fail2ban-UI.",
-    "email.whois.no_data": "Les données WHOIS n'ont pas été capturées pour cet événement.",
-    "email.logs.no_data": "Aucune entrée de journal n'a été capturée pour ce blocage.",
-    "email.footer.text": "Ce message a été généré automatiquement par Fail2Ban-UI"
-  }
+  "email.whois.no_data": "Les données WHOIS n'ont pas été capturées pour cet événement.",
+  "email.logs.no_data": "Aucune entrée de journal n'a été capturée pour ce blocage.",
+  "email.footer.text": "Ce message a été généré automatiquement par Fail2Ban-UI",
+  "lotr.email.title": "Un serviteur des ténèbres a été banni",
+  "lotr.email.intro": "Les gardiens de la Terre du Milieu ont détecté une menace et l'ont bannie du royaume.",
+  "lotr.email.you_shall_not_pass": "TU NE PASSERAS PAS",
+  "lotr.email.footer": "Que les serveurs soient protégés. Un bannissement pour les gouverner tous.",
+  "lotr.email.details.dark_servant_location": "L'emplacement du serviteur des ténèbres",
+  "lotr.email.details.realm_protection": "Le royaume de la protection",
+  "lotr.email.details.origins": "Origines des",
+  "lotr.email.details.banished_at": "Banni à",
+  "lotr.banished": "Banni du royaume",
+  "lotr.realms_protected": "Royaumes protégés",
+  "lotr.threats_banished": "Menaces bannies"
+}

@@ -36,6 +36,12 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" />
   <!-- Fail2ban UI CSS -->
   <link rel="stylesheet" href="/static/fail2ban-ui.css">
+  <!-- LOTR Theme CSS (loaded conditionally) -->
+  <link rel="stylesheet" href="/static/lotr-theme.css" id="lotr-theme-css" disabled>
+  <!-- Google Fonts for LOTR theme -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=MedievalSharp&display=swap" rel="stylesheet">
 </head>
 
 <body class="bg-gray-50 overflow-y-scroll">
@@ -1798,6 +1804,10 @@
       if (typeof updateTranslations === 'function') {
         updateTranslations();
       }
+      // Update LOTR terminology if active
+      if (isLOTRModeActive) {
+        updateDashboardLOTRTerminology(true);
+      }
     }
 
     function renderLogOverviewSection() {
@@ -2554,7 +2564,10 @@
     //*******************************************************************
 
     function unbanIP(jail, ip) {
-      if (!confirm("Unban IP " + ip + " from jail " + jail + "?")) {
+      const confirmMsg = isLOTRModeActive 
+        ? `Restore ${ip} to the realm from ${jail}?`
+        : `Unban IP ${ip} from jail ${jail}?`;
+      if (!confirm(confirmMsg)) {
         return;
       }
       showLoading(true);
@@ -2993,6 +3006,153 @@
     }
 
     //*******************************************************************
+    //*              LOTR Mode Detection and Management :                *
+    //*******************************************************************
+
+    // Global variable to track LOTR mode state
+    let isLOTRModeActive = false;
+
+    // Check if LOTR mode should be active based on alertCountries
+    function isLOTRMode(alertCountries) {
+      if (!alertCountries || !Array.isArray(alertCountries)) {
+        return false;
+      }
+      return alertCountries.includes('LOTR');
+    }
+
+    // Apply or remove LOTR theme
+    function applyLOTRTheme(active) {
+      const body = document.body;
+      const lotrCSS = document.getElementById('lotr-theme-css');
+      
+      if (active) {
+        body.classList.add('lotr-mode');
+        if (lotrCSS) {
+          lotrCSS.disabled = false;
+        }
+        isLOTRModeActive = true;
+        console.log('🎭 LOTR Mode Activated - Welcome to Middle-earth!');
+      } else {
+        body.classList.remove('lotr-mode');
+        if (lotrCSS) {
+          lotrCSS.disabled = true;
+        }
+        isLOTRModeActive = false;
+        console.log('🎭 LOTR Mode Deactivated');
+      }
+    }
+
+    // Check and apply LOTR theme based on current settings
+    function checkAndApplyLOTRTheme(alertCountries) {
+      const shouldBeActive = isLOTRMode(alertCountries);
+      if (shouldBeActive !== isLOTRModeActive) {
+        applyLOTRTheme(shouldBeActive);
+        updateLOTRTerminology(shouldBeActive);
+      }
+    }
+
+    // Update UI terminology when LOTR mode is active
+    function updateLOTRTerminology(active) {
+      if (active) {
+        // Update navigation title
+        const navTitle = document.querySelector('nav .text-xl');
+        if (navTitle) {
+          navTitle.textContent = 'Middle-earth Security';
+        }
+        
+        // Update page title
+        const pageTitle = document.querySelector('title');
+        if (pageTitle) {
+          pageTitle.textContent = 'Middle-earth Security Realm';
+        }
+        
+        // Update dashboard terminology
+        updateDashboardLOTRTerminology(true);
+        
+        // Add decorative elements
+        addLOTRDecorations();
+      } else {
+        // Restore original text
+        const navTitle = document.querySelector('nav .text-xl');
+        if (navTitle) {
+          navTitle.textContent = 'Fail2ban UI';
+        }
+        
+        const pageTitle = document.querySelector('title');
+        if (pageTitle && pageTitle.hasAttribute('data-i18n')) {
+          const i18nKey = pageTitle.getAttribute('data-i18n');
+          pageTitle.textContent = t(i18nKey, 'Fail2ban UI Dashboard');
+        }
+        
+        // Restore dashboard terminology
+        updateDashboardLOTRTerminology(false);
+        
+        // Remove decorative elements
+        removeLOTRDecorations();
+      }
+    }
+
+    // Update dashboard terminology for LOTR mode
+    function updateDashboardLOTRTerminology(active) {
+      // Update text elements that use data-i18n
+      const elements = document.querySelectorAll('[data-i18n]');
+      elements.forEach(el => {
+        const i18nKey = el.getAttribute('data-i18n');
+        if (active) {
+          // Check for LOTR-specific translations
+          if (i18nKey === 'dashboard.cards.total_banned') {
+            el.textContent = t('lotr.threats_banished', 'Threats Banished');
+          } else if (i18nKey === 'dashboard.table.banned_ips') {
+            el.textContent = t('lotr.threats_banished', 'Threats Banished');
+          } else if (i18nKey === 'dashboard.search_label') {
+            el.textContent = t('lotr.threats_banished', 'Search Banished Threats');
+          } else if (i18nKey === 'dashboard.manage_servers') {
+            el.textContent = t('lotr.realms_protected', 'Manage Realms');
+          }
+        } else {
+          // Restore original translations
+          if (i18nKey) {
+            el.textContent = t(i18nKey, el.textContent);
+          }
+        }
+      });
+      
+      // Update "Unban" buttons
+      const unbanButtons = document.querySelectorAll('button, a');
+      unbanButtons.forEach(btn => {
+        if (btn.textContent && btn.textContent.includes('Unban')) {
+          if (active) {
+            btn.textContent = btn.textContent.replace(/Unban/gi, t('lotr.banished', 'Restore to Realm'));
+          } else {
+            btn.textContent = btn.textContent.replace(/Restore to Realm/gi, t('dashboard.unban', 'Unban'));
+          }
+        }
+      });
+    }
+
+    // Add LOTR decorative elements to the UI
+    function addLOTRDecorations() {
+      // Add decorative divider to settings section if not already present
+      const settingsSection = document.getElementById('settingsSection');
+      if (settingsSection && !settingsSection.querySelector('.lotr-divider')) {
+        const divider = document.createElement('div');
+        divider.className = 'lotr-divider';
+        divider.style.marginTop = '20px';
+        divider.style.marginBottom = '20px';
+        const firstChild = settingsSection.querySelector('.bg-white');
+        if (firstChild) {
+          settingsSection.insertBefore(divider, firstChild);
+        }
+      }
+    }
+
+    // Remove LOTR decorative elements
+    function removeLOTRDecorations() {
+      const dividers = document.querySelectorAll('.lotr-divider');
+      dividers.forEach(div => div.remove());
+    }
+
+    //*******************************************************************
     //*       Load current settings when opening settings page :        *
     //*******************************************************************
 
@@ -3063,6 +3223,9 @@
             }
           }
           $('#alertCountries').trigger('change');
+          
+          // Check and apply LOTR theme
+          checkAndApplyLOTRTheme(data.alertCountries || []);
 
           if (data.smtp) {
             document.getElementById('smtpHost').value = data.smtp.host || '';
@@ -3145,6 +3308,11 @@
             var selectedLang = $('#languageSelect').val();
             loadTranslations(selectedLang);
             console.log("Settings saved successfully. Restart needed? " + data.restartNeeded);
+            
+            // Check and apply LOTR theme after saving
+            const selectedCountries = Array.from(document.getElementById('alertCountries').selectedOptions).map(opt => opt.value);
+            checkAndApplyLOTRTheme(selectedCountries.length > 0 ? selectedCountries : ["ALL"]);
+            
             showToast(t('settings.save_success', 'Settings saved'), 'success');
             if (data.restartNeeded) {
               loadServers().then(function() {
@@ -3557,6 +3725,19 @@
             $('#alertCountries').val(newValues).trigger('change');
           }
         }
+        // Check LOTR mode after selection change
+        setTimeout(function() {
+          const selectedCountries = $('#alertCountries').val() || [];
+          checkAndApplyLOTRTheme(selectedCountries);
+        }, 100);
+      });
+      
+      $('#alertCountries').on('select2:unselect', function(e) {
+        // Check LOTR mode after deselection
+        setTimeout(function() {
+          const selectedCountries = $('#alertCountries').val() || [];
+          checkAndApplyLOTRTheme(selectedCountries);
+        }, 100);
       });
 
       var sshKeySelect = document.getElementById('serverSSHKeySelect');

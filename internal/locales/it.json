@@ -253,7 +253,18 @@
     "email.test.details.triggered_at": "Attivato alle",
     "email.test.whois_no_data": "Nessuna ricerca WHOIS viene eseguita per le email di test.",
     "email.test.sample_logs": "2025-01-01T12:00:00Z Voce di log di esempio di Fail2ban-UI.",
-    "email.whois.no_data": "I dati WHOIS non sono stati acquisiti per questo evento.",
-    "email.logs.no_data": "Nessuna voce di log è stata acquisita per questo blocco.",
-    "email.footer.text": "Questo messaggio è stato generato automaticamente da Fail2Ban-UI"
-  }
+  "email.whois.no_data": "I dati WHOIS non sono stati acquisiti per questo evento.",
+  "email.logs.no_data": "Nessuna voce di log è stata acquisita per questo blocco.",
+  "email.footer.text": "Questo messaggio è stato generato automaticamente da Fail2Ban-UI",
+  "lotr.email.title": "Un servitore oscuro è stato bandito",
+  "lotr.email.intro": "I guardiani della Terra di Mezzo hanno rilevato una minaccia e l'hanno bandita dal regno.",
+  "lotr.email.you_shall_not_pass": "NON PASSERAI",
+  "lotr.email.footer": "Possano i server essere protetti. Un ban per governarli tutti.",
+  "lotr.email.details.dark_servant_location": "La posizione del servitore oscuro",
+  "lotr.email.details.realm_protection": "Il regno della protezione",
+  "lotr.email.details.origins": "Origini dalle",
+  "lotr.email.details.banished_at": "Bandito alle",
+  "lotr.banished": "Bandito dal regno",
+  "lotr.realms_protected": "Regni protetti",
+  "lotr.threats_banished": "Minacce bandite"
+}

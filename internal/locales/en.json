@@ -255,6 +255,17 @@
     "email.test.sample_logs": "2025-01-01T12:00:00Z Sample log entry of Fail2ban-UI.",
     "email.whois.no_data": "WHOIS data was not captured for this event.",
     "email.logs.no_data": "No log entries were captured for this block.",
-    "email.footer.text": "This message was generated automatically by Fail2Ban-UI"
+    "email.footer.text": "This message was generated automatically by Fail2Ban-UI",
+    "lotr.email.title": "A Dark Servant Has Been Banished",
+    "lotr.email.intro": "The guardians of Middle-earth have detected a threat and banished it from the realm.",
+    "lotr.email.you_shall_not_pass": "YOU SHALL NOT PASS",
+    "lotr.email.footer": "May the servers be protected. One ban to rule them all.",
+    "lotr.email.details.dark_servant_location": "The Dark Servant's Location",
+    "lotr.email.details.realm_protection": "The Realm of Protection",
+    "lotr.email.details.origins": "Origins from the",
+    "lotr.email.details.banished_at": "Banished at the",
+    "lotr.banished": "Banished from the realm",
+    "lotr.realms_protected": "Realms Protected",
+    "lotr.threats_banished": "Threats Banished"
   }
   

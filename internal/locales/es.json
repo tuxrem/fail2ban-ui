@@ -255,5 +255,16 @@
     "email.test.sample_logs": "2025-01-01T12:00:00Z Entrada de registro de ejemplo de Fail2ban-UI.",
     "email.whois.no_data": "No se capturaron datos WHOIS para este evento.",
     "email.logs.no_data": "No se capturaron entradas de registro para este bloqueo.",
-    "email.footer.text": "Este mensaje fue generado automáticamente por Fail2Ban-UI"
+    "email.footer.text": "Este mensaje fue generado automáticamente por Fail2Ban-UI",
+    "lotr.email.title": "Un siervo oscuro ha sido desterrado",
+    "lotr.email.intro": "Los guardianes de la Tierra Media han detectado una amenaza y la han desterrado del reino.",
+    "lotr.email.you_shall_not_pass": "NO PASARÁS",
+    "lotr.email.footer": "Que los servidores estén protegidos. Un ban para gobernarlos a todos.",
+    "lotr.email.details.dark_servant_location": "La ubicación del siervo oscuro",
+    "lotr.email.details.realm_protection": "El reino de la protección",
+    "lotr.email.details.origins": "Orígenes de las",
+    "lotr.email.details.banished_at": "Desterrado a las",
+    "lotr.banished": "Desterrado del reino",
+    "lotr.realms_protected": "Reinos protegidos",
+    "lotr.threats_banished": "Amenazas desterradas"
   }

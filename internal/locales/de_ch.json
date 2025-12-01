@@ -255,6 +255,17 @@
     "email.test.sample_logs": "2025-01-01T12:00:00Z Bispil-Log-Itrag vom Fail2ban-UI.",
     "email.whois.no_data": "WHOIS-Date si für das Ereignis nid erfasst worde.",
     "email.logs.no_data": "Für de Block sind keni Log-Iiträg erfasst worde.",
-    "email.footer.text": "Diä Nachricht isch automatisch vom Fail2Ban-UI generiert worde"
+    "email.footer.text": "Diä Nachricht isch automatisch vom Fail2Ban-UI generiert worde",
+    "lotr.email.title": "E dunkle Diener isch verbannt worde",
+    "lotr.email.intro": "D Wächter vo Mittelerde hei e Bedrohig erkannt und us dim Riich verbannt.",
+    "lotr.email.you_shall_not_pass": "DU DARFSCH NID VERBII",
+    "lotr.email.footer": "Möge d Server gschützt si. E Bann, um si alli z beherrsche.",
+    "lotr.email.details.dark_servant_location": "Dr Ort vom garstige Ork",
+    "lotr.email.details.realm_protection": "S Riich vom Schutz",
+    "lotr.email.details.origins": "Herkunft us de",
+    "lotr.email.details.banished_at": "Verbannt zur",
+    "lotr.banished": "Us em Riich verbannt",
+    "lotr.realms_protected": "Gschützti Riich",
+    "lotr.threats_banished": "Verbannti Bedrohige"
   }
   

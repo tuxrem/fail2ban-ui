@@ -255,6 +255,17 @@
     "email.test.sample_logs": "2025-01-01T12:00:00Z Beispiel-Log-Eintrag von Fail2ban-UI.",
     "email.whois.no_data": "WHOIS-Daten wurden für dieses Ereignis nicht erfasst.",
     "email.logs.no_data": "Für diesen Block wurden keine Log-Einträge erfasst.",
-    "email.footer.text": "Diese Nachricht wurde automatisch von Fail2Ban-UI generiert"
+    "email.footer.text": "Diese Nachricht wurde automatisch von Fail2Ban-UI generiert",
+    "lotr.email.title": "Ein dunkler Diener wurde verbannt",
+    "lotr.email.intro": "Die Wächter von Mittelerde haben eine Bedrohung erkannt und aus dem Reich verbannt.",
+    "lotr.email.you_shall_not_pass": "DU KANNST NICHT VORBEI",
+    "lotr.email.footer": "Mögen die Server geschützt sein. Ein Bann, um sie alle zu beherrschen.",
+    "lotr.email.details.dark_servant_location": "Die Position des dunklen Dieners",
+    "lotr.email.details.realm_protection": "Das Reich des Schutzes",
+    "lotr.email.details.origins": "Herkunft aus den",
+    "lotr.email.details.banished_at": "Verbannt zur",
+    "lotr.banished": "Aus dem Reich verbannt",
+    "lotr.realms_protected": "Geschützte Reiche",
+    "lotr.threats_banished": "Verbannte Bedrohungen"
   }
   

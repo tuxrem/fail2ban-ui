@@ -21,6 +21,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -75,8 +76,15 @@ func main() {
 	// Register all application routes, including the static files and templates.
 	web.RegisterRoutes(router)
 
-	printWelcomeBanner(serverPort)
-	log.Println("--- Fail2Ban-UI started in", gin.Mode(), "mode ---")
+	// Check if LOTR mode is active
+	isLOTRMode := isLOTRModeActive(settings.AlertCountries)
+	printWelcomeBanner(serverPort, isLOTRMode)
+	if isLOTRMode {
+		log.Println("--- Middle-earth Security Realm activated ---")
+		log.Println("🎭 LOTR Mode: The guardians of Middle-earth stand ready!")
+	} else {
+		log.Println("--- Fail2Ban-UI started in", gin.Mode(), "mode ---")
+	}
 	log.Println("Server listening on port", serverPort, ".")
 
 	// Start the server on port 8080.
@@ -85,10 +93,45 @@ func main() {
 	}
 }
 
+// isLOTRModeActive checks if LOTR mode is enabled in alert countries
+func isLOTRModeActive(alertCountries []string) bool {
+	if len(alertCountries) == 0 {
+		return false
+	}
+	for _, country := range alertCountries {
+		if strings.EqualFold(country, "LOTR") {
+			return true
+		}
+	}
+	return false
+}
+
 // printWelcomeBanner prints a cool Tux banner with startup info.
-func printWelcomeBanner(appPort string) {
+func printWelcomeBanner(appPort string, isLOTRMode bool) {
 	greeting := getGreeting()
-	const tuxBanner = `
+	
+	if isLOTRMode {
+		const lotrBanner = `
+      .--.
+     |o_o |     %s
+     |:_/ |
+    //   \ \
+   (|     | )
+  /'\_   _/'\
+  \___)=(___/
+
+Middle-earth Security Realm - LOTR Mode Activated
+══════════════════════════════════════════════════
+⚔️  The guardians of Middle-earth stand ready!  ⚔️
+Developers:   https://swissmakers.ch
+Mode:         %s
+Listening on: http://0.0.0.0:%s
+══════════════════════════════════════════════════
+
+`
+		fmt.Printf(lotrBanner, greeting, gin.Mode(), appPort)
+	} else {
+		const tuxBanner = `
       .--.
      |o_o |     %s
      |:_/ |
@@ -105,7 +148,8 @@ Listening on: http://0.0.0.0:%s
 ----------------------------------------------
 
 `
-	fmt.Printf(tuxBanner, greeting, gin.Mode(), appPort)
+		fmt.Printf(tuxBanner, greeting, gin.Mode(), appPort)
+	}
 }
 
 // getGreeting returns a friendly greeting based on the time of day.

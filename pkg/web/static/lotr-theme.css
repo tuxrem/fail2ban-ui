@@ -1,0 +1,439 @@
+/* ============================================
+   LOTR Easter Egg Theme - Middle-earth Styling
+   ============================================ */
+
+/* Only apply when body has lotr-mode class */
+body.lotr-mode {
+  /* Color Variables */
+  --lotr-forest-green: #1a4d2e;
+  --lotr-dark-green: #0d2818;
+  --lotr-gold: #d4af37;
+  --lotr-dark-gold: #b8941f;
+  --lotr-brown: #3d2817;
+  --lotr-stone-gray: #8b7355;
+  --lotr-parchment: #f4e8d0;
+  --lotr-dark-parchment: #e8d5b7;
+  --lotr-purple: #4a148c;
+  --lotr-dark-purple: #2d0a4f;
+  --lotr-fire-orange: #ff6b35;
+  --lotr-fire-red: #c1121f;
+}
+
+/* Base Theme Overrides */
+body.lotr-mode {
+  background: linear-gradient(135deg, var(--lotr-dark-green) 0%, var(--lotr-forest-green) 50%, var(--lotr-brown) 100%);
+  background-attachment: fixed;
+  color: var(--lotr-parchment);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Typography */
+body.lotr-mode h1,
+body.lotr-mode h2,
+body.lotr-mode h3,
+body.lotr-mode .text-2xl,
+body.lotr-mode .text-xl {
+  font-family: 'Cinzel', serif;
+  color: var(--lotr-gold);
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.05em;
+}
+
+body.lotr-mode h1 {
+  font-weight: 700;
+}
+
+body.lotr-mode h2,
+body.lotr-mode h3 {
+  font-weight: 600;
+}
+
+/* Cards - Parchment Style */
+body.lotr-mode .bg-white {
+  background: var(--lotr-parchment) !important;
+  border: 3px solid var(--lotr-gold);
+  border-radius: 8px;
+  box-shadow: 
+    0 4px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+  position: relative;
+}
+
+body.lotr-mode .bg-white::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: 
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(139, 115, 85, 0.03) 2px,
+      rgba(139, 115, 85, 0.03) 4px
+    );
+  pointer-events: none;
+  border-radius: 8px;
+}
+
+body.lotr-mode .bg-white .text-gray-800,
+body.lotr-mode .bg-white .text-gray-900 {
+  color: var(--lotr-brown) !important;
+}
+
+body.lotr-mode .bg-white .text-gray-700 {
+  color: var(--lotr-brown) !important;
+}
+
+/* Buttons - Medieval Shield Style */
+body.lotr-mode button,
+body.lotr-mode .bg-blue-500,
+body.lotr-mode .bg-blue-600 {
+  background: linear-gradient(135deg, var(--lotr-gold) 0%, var(--lotr-dark-gold) 100%) !important;
+  border: 2px solid var(--lotr-brown) !important;
+  color: var(--lotr-brown) !important;
+  font-weight: 600;
+  text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.3);
+  box-shadow: 
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.2s ease;
+}
+
+body.lotr-mode button:hover,
+body.lotr-mode .bg-blue-500:hover,
+body.lotr-mode .bg-blue-600:hover {
+  background: linear-gradient(135deg, var(--lotr-dark-gold) 0%, var(--lotr-gold) 100%) !important;
+  box-shadow: 
+    0 4px 8px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+body.lotr-mode button:active {
+  transform: translateY(0);
+}
+
+/* Input Fields - Scroll Style */
+body.lotr-mode input,
+body.lotr-mode select,
+body.lotr-mode textarea {
+  background: var(--lotr-dark-parchment) !important;
+  border: 2px solid var(--lotr-stone-gray) !important;
+  color: var(--lotr-brown) !important;
+  border-radius: 4px;
+}
+
+body.lotr-mode input:focus,
+body.lotr-mode select:focus,
+body.lotr-mode textarea:focus {
+  border-color: var(--lotr-gold) !important;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2) !important;
+  outline: none;
+}
+
+/* Navigation */
+body.lotr-mode nav {
+  background: linear-gradient(135deg, var(--lotr-brown) 0%, var(--lotr-dark-green) 100%) !important;
+  border-bottom: 3px solid var(--lotr-gold);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+body.lotr-mode nav .text-gray-700,
+body.lotr-mode nav .text-gray-800 {
+  color: var(--lotr-gold) !important;
+}
+
+/* Loading Spinner - One Ring Animation */
+body.lotr-mode #loading-overlay .animate-spin {
+  border-color: var(--lotr-gold);
+  border-top-color: transparent;
+  width: 60px;
+  height: 60px;
+  position: relative;
+}
+
+body.lotr-mode #loading-overlay .animate-spin::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--lotr-gold);
+  border-radius: 50%;
+  box-shadow: 
+    0 0 20px var(--lotr-gold),
+    inset 0 0 20px var(--lotr-gold);
+  animation: ringGlow 2s ease-in-out infinite;
+}
+
+@keyframes ringGlow {
+  0%, 100% {
+    opacity: 0.6;
+    box-shadow: 
+      0 0 20px var(--lotr-gold),
+      inset 0 0 20px var(--lotr-gold);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 
+      0 0 40px var(--lotr-gold),
+      0 0 60px var(--lotr-gold),
+      inset 0 0 30px var(--lotr-gold);
+  }
+}
+
+/* Toast Notifications - Scroll Style */
+body.lotr-mode .toast {
+  background: var(--lotr-parchment) !important;
+  border: 2px solid var(--lotr-gold);
+  color: var(--lotr-brown) !important;
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 0 0 20px rgba(212, 175, 55, 0.1);
+  position: relative;
+  padding-left: 50px;
+}
+
+body.lotr-mode .toast::before {
+  content: '⚔';
+  position: absolute;
+  left: 15px;
+  font-size: 20px;
+}
+
+body.lotr-mode .toast-success {
+  border-color: var(--lotr-forest-green);
+}
+
+body.lotr-mode .toast-error {
+  border-color: var(--lotr-fire-red);
+}
+
+body.lotr-mode .toast-info {
+  border-color: var(--lotr-gold);
+}
+
+/* Dashboard Cards - Medieval Banners */
+body.lotr-mode .bg-blue-50,
+body.lotr-mode .bg-gray-50 {
+  background: var(--lotr-dark-parchment) !important;
+}
+
+body.lotr-mode .text-blue-600 {
+  color: var(--lotr-gold) !important;
+}
+
+/* Tables */
+body.lotr-mode table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+body.lotr-mode table th {
+  background: linear-gradient(135deg, var(--lotr-brown) 0%, var(--lotr-stone-gray) 100%);
+  color: var(--lotr-gold);
+  border: 2px solid var(--lotr-gold);
+  font-family: 'Cinzel', serif;
+  font-weight: 600;
+}
+
+body.lotr-mode table td {
+  background: var(--lotr-parchment);
+  border: 1px solid var(--lotr-stone-gray);
+  color: var(--lotr-brown);
+}
+
+body.lotr-mode table tr:hover td {
+  background: var(--lotr-dark-parchment);
+}
+
+/* Modal - Parchment Scroll */
+body.lotr-mode .modal-content {
+  background: var(--lotr-parchment) !important;
+  border: 4px solid var(--lotr-gold);
+  border-radius: 12px;
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.5),
+    inset 0 0 40px rgba(212, 175, 55, 0.1);
+}
+
+body.lotr-mode .modal-content h2,
+body.lotr-mode .modal-content h3 {
+  border-bottom: 2px solid var(--lotr-gold);
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+/* Badges and Labels */
+body.lotr-mode .bg-green-100,
+body.lotr-mode .bg-green-500 {
+  background: var(--lotr-forest-green) !important;
+  color: var(--lotr-gold) !important;
+}
+
+body.lotr-mode .bg-red-100,
+body.lotr-mode .bg-red-500 {
+  background: var(--lotr-fire-red) !important;
+  color: var(--lotr-parchment) !important;
+}
+
+body.lotr-mode .bg-yellow-400 {
+  background: var(--lotr-gold) !important;
+  color: var(--lotr-brown) !important;
+}
+
+/* Restart Banner */
+body.lotr-mode #restartBanner {
+  background: linear-gradient(135deg, var(--lotr-gold) 0%, var(--lotr-dark-gold) 100%) !important;
+  border-top: 3px solid var(--lotr-brown);
+  border-bottom: 3px solid var(--lotr-brown);
+  color: var(--lotr-brown) !important;
+  font-weight: 600;
+}
+
+/* Select2 Styling */
+body.lotr-mode .select2-container--default .select2-selection {
+  background: var(--lotr-dark-parchment) !important;
+  border: 2px solid var(--lotr-stone-gray) !important;
+  color: var(--lotr-brown) !important;
+}
+
+body.lotr-mode .select2-container--default .select2-selection--multiple .select2-selection__choice {
+  background: var(--lotr-gold) !important;
+  border: 1px solid var(--lotr-brown) !important;
+  color: var(--lotr-brown) !important;
+}
+
+/* Scrollbar Styling */
+body.lotr-mode ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+body.lotr-mode ::-webkit-scrollbar-track {
+  background: var(--lotr-dark-green);
+  border: 1px solid var(--lotr-stone-gray);
+}
+
+body.lotr-mode ::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, var(--lotr-gold) 0%, var(--lotr-dark-gold) 100%);
+  border: 2px solid var(--lotr-brown);
+  border-radius: 6px;
+}
+
+body.lotr-mode ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, var(--lotr-dark-gold) 0%, var(--lotr-gold) 100%);
+}
+
+/* Decorative Elements */
+body.lotr-mode .lotr-divider {
+  height: 2px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    var(--lotr-gold) 20%, 
+    var(--lotr-gold) 80%, 
+    transparent 100%);
+  margin: 20px 0;
+  position: relative;
+}
+
+body.lotr-mode .lotr-divider::before,
+body.lotr-mode .lotr-divider::after {
+  content: '⚔';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--lotr-gold);
+  font-size: 20px;
+  background: var(--lotr-parchment);
+  padding: 0 10px;
+}
+
+body.lotr-mode .lotr-divider::before {
+  left: 20%;
+}
+
+body.lotr-mode .lotr-divider::after {
+  right: 20%;
+}
+
+/* Glow Effects */
+body.lotr-mode .lotr-glow {
+  text-shadow: 
+    0 0 10px var(--lotr-gold),
+    0 0 20px var(--lotr-gold),
+    0 0 30px var(--lotr-gold);
+  animation: gentleGlow 3s ease-in-out infinite;
+}
+
+@keyframes gentleGlow {
+  0%, 100% {
+    text-shadow: 
+      0 0 10px var(--lotr-gold),
+      0 0 20px var(--lotr-gold),
+      0 0 30px var(--lotr-gold);
+  }
+  50% {
+    text-shadow: 
+      0 0 15px var(--lotr-gold),
+      0 0 30px var(--lotr-gold),
+      0 0 45px var(--lotr-gold);
+  }
+}
+
+/* Fire Effect (for email headers) */
+body.lotr-mode .lotr-fire {
+  background: linear-gradient(180deg, 
+    var(--lotr-fire-red) 0%,
+    var(--lotr-fire-orange) 50%,
+    var(--lotr-gold) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 700;
+  text-shadow: 0 0 20px var(--lotr-fire-orange);
+  animation: fireFlicker 2s ease-in-out infinite;
+}
+
+@keyframes fireFlicker {
+  0%, 100% {
+    filter: brightness(1);
+  }
+  25% {
+    filter: brightness(1.2);
+  }
+  50% {
+    filter: brightness(0.9);
+  }
+  75% {
+    filter: brightness(1.1);
+  }
+}
+
+/* Smooth Theme Transition */
+body.lotr-mode,
+body.lotr-mode * {
+  transition: background-color 0.5s ease, 
+              color 0.5s ease, 
+              border-color 0.5s ease;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  body.lotr-mode .bg-white {
+    border-width: 2px;
+  }
+  
+  body.lotr-mode h1,
+  body.lotr-mode h2,
+  body.lotr-mode h3 {
+    font-size: 1.5em;
+  }
+}
+
