@@ -37,7 +37,7 @@
   <!-- Fail2ban UI CSS -->
   <link rel="stylesheet" href="/static/fail2ban-ui.css">
   <!-- LOTR Theme CSS (loaded conditionally) -->
-  <link rel="stylesheet" href="/static/lotr-theme.css" id="lotr-theme-css" disabled>
+  <link rel="stylesheet" href="/static/lotr.css" id="lotr-css" disabled>
   <!-- Google Fonts for LOTR theme -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1001,6 +1001,23 @@
     window.addEventListener('DOMContentLoaded', function() {
       showLoading(true);
       displayExternalIP();
+      
+      // Check LOTR mode on page load to apply immediately
+      fetch('/api/settings')
+        .then(res => res.json())
+        .then(data => {
+          const alertCountries = data.alertCountries || [];
+          checkAndApplyLOTRTheme(alertCountries);
+          // Store in global for later use
+          if (typeof currentSettings === 'undefined') {
+            window.currentSettings = {};
+          }
+          window.currentSettings.alertCountries = alertCountries;
+        })
+        .catch(err => {
+          console.warn('Could not check LOTR on load:', err);
+        });
+      
       Promise.all([
         loadServers(),
         getTranslationsSettingsOnPageload()
@@ -3023,23 +3040,30 @@
     // Apply or remove LOTR theme
     function applyLOTRTheme(active) {
       const body = document.body;
-      const lotrCSS = document.getElementById('lotr-theme-css');
+      const lotrCSS = document.getElementById('lotr-css');
       
       if (active) {
-        body.classList.add('lotr-mode');
+        // Enable CSS first
         if (lotrCSS) {
           lotrCSS.disabled = false;
         }
+        // Then add class to body
+        body.classList.add('lotr-mode');
         isLOTRModeActive = true;
         console.log('🎭 LOTR Mode Activated - Welcome to Middle-earth!');
       } else {
+        // Remove class first
         body.classList.remove('lotr-mode');
+        // Then disable CSS
         if (lotrCSS) {
           lotrCSS.disabled = true;
         }
         isLOTRModeActive = false;
         console.log('🎭 LOTR Mode Deactivated');
       }
+      
+      // Force a reflow to ensure styles are applied
+      void body.offsetHeight;
     }
 
     // Check and apply LOTR theme based on current settings
@@ -3139,9 +3163,20 @@
         divider.className = 'lotr-divider';
         divider.style.marginTop = '20px';
         divider.style.marginBottom = '20px';
-        const firstChild = settingsSection.querySelector('.bg-white');
-        if (firstChild) {
+        
+        // Find the first child element (not text node) to insert before
+        const firstChild = Array.from(settingsSection.childNodes).find(
+          node => node.nodeType === Node.ELEMENT_NODE
+        );
+        
+        if (firstChild && firstChild.parentNode === settingsSection) {
           settingsSection.insertBefore(divider, firstChild);
+        } else if (settingsSection.firstChild) {
+          // Fallback: append if insertBefore fails
+          settingsSection.insertBefore(divider, settingsSection.firstChild);
+        } else {
+          // Last resort: append to end
+          settingsSection.appendChild(divider);
         }
       }
     }
