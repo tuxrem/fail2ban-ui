@@ -343,6 +343,10 @@
             <label for="uiPort" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="settings.server_port">Server Port</label>
             <input type="number" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" id="uiPort"
                    data-i18n-placeholder="settings.server_port_placeholder" placeholder="e.g., 8080" required min="80" max="65535" />
+            <p class="mt-1 text-sm text-gray-500" id="portEnvHint" style="display: none;">
+              <span data-i18n="settings.port_env_set">Port is set via PORT environment variable:</span> <span id="portEnvValue"></span>. <span data-i18n="settings.port_env_hint">To change the port via Web UI, remove the PORT environment variable and restart the container.</span>
+            </p>
+            <p class="mt-1 text-sm text-amber-600" id="portRestartHint" style="display: none;" data-i18n="settings.port_restart_hint">⚠️ Port changes require a container restart to take effect.</p>
           </div>
           <div class="mb-4">
             <label for="callbackURL" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="settings.callback_url">Fail2ban Callback URL</label>
@@ -3149,7 +3153,30 @@
         .then(res => res.json())
         .then(data => {
           document.getElementById('languageSelect').value = data.language || 'en';
-          document.getElementById('uiPort').value = data.port || 8080,
+          
+          // Handle PORT environment variable
+          const uiPortInput = document.getElementById('uiPort');
+          const portEnvHint = document.getElementById('portEnvHint');
+          const portEnvValue = document.getElementById('portEnvValue');
+          const portRestartHint = document.getElementById('portRestartHint');
+          
+          if (data.portEnvSet) {
+            // PORT env is set - make field readonly and show hint
+            uiPortInput.value = data.port || data.portFromEnv || 8080;
+            uiPortInput.readOnly = true;
+            uiPortInput.classList.add('bg-gray-100', 'cursor-not-allowed');
+            portEnvValue.textContent = data.portFromEnv || data.port || 8080;
+            portEnvHint.style.display = 'block';
+            portRestartHint.style.display = 'none';
+          } else {
+            // PORT env not set - allow editing
+            uiPortInput.value = data.port || 8080;
+            uiPortInput.readOnly = false;
+            uiPortInput.classList.remove('bg-gray-100', 'cursor-not-allowed');
+            portEnvHint.style.display = 'none';
+            portRestartHint.style.display = 'block';
+          }
+          
           document.getElementById('debugMode').checked = data.debug || false;
           document.getElementById('callbackURL').value = data.callbackUrl || '';
 
