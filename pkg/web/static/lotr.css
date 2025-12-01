@@ -31,7 +31,7 @@ body.lotr-mode {
   background: 
     radial-gradient(ellipse at top, rgba(26, 77, 46, 0.3) 0%, transparent 50%),
     radial-gradient(ellipse at bottom, rgba(45, 10, 79, 0.2) 0%, transparent 50%),
-    linear-gradient(135deg, #0d2818 0%, #1a4d2e 30%, #2d0a4f 70%, #0d2818 100%);
+    linear-gradient(135deg, #001f0d 0%, #1f2622 30%, #000000 70%, #36370d 100%);
   background-attachment: fixed;
   background-size: 100% 100%;
   color: var(--lotr-text-light);
@@ -118,6 +118,10 @@ body.lotr-mode .bg-white::after {
   opacity: 0.3;
 }
 
+body.lotr-mode footer.bg-gray-100 {
+  background-color: var(--lotr-dark-brown) !important;
+}
+
 /* Text Colors with High Contrast */
 body.lotr-mode .bg-white .text-gray-800,
 body.lotr-mode .bg-white .text-gray-900 {
@@ -131,7 +135,7 @@ body.lotr-mode .bg-white .text-gray-700 {
 
 body.lotr-mode .bg-white .text-gray-500,
 body.lotr-mode .bg-white .text-gray-600 {
-  color: var(--lotr-brown) !important;
+  color: var(--lotr-brown);
 }
 
 /* Beautiful Buttons - Medieval Shield Style */
@@ -194,6 +198,9 @@ body.lotr-mode button:active {
     inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+body.lotr-mode nav.bg-blue-600:not(.toast), body.lotr-mode nav.bg-blue-600:hover {
+  background: linear-gradient(135deg, #342e14 0%, #000000 50%, #916f00 100%) !important;
+}
 /* Enhanced Input Fields - Scroll Style */
 body.lotr-mode input:not([type="checkbox"]):not([type="radio"]),
 body.lotr-mode select,
@@ -404,7 +411,7 @@ body.lotr-mode .bg-gray-50 {
 }
 
 body.lotr-mode .text-blue-600 {
-  color: var(--lotr-gold) !important;
+  color: var(--lotr-gold);
   font-weight: 600;
 }
 
@@ -418,7 +425,7 @@ body.lotr-mode table {
 
 body.lotr-mode table th {
   background: linear-gradient(135deg, var(--lotr-dark-brown) 0%, var(--lotr-brown) 50%, var(--lotr-stone-gray) 100%);
-  color: var(--lotr-bright-gold);
+  color: var(--lotr-bright-gold) !important;
   border: 2px solid var(--lotr-gold);
   font-family: 'Cinzel', serif;
   font-weight: 700;
@@ -612,7 +619,7 @@ body.lotr-mode .lotr-divider::after {
   transform: translateY(-50%);
   font-size: 28px;
   color: var(--lotr-bright-gold);
-  background: var(--lotr-parchment);
+  background: #2c1810;
   padding: 0 15px;
   text-shadow: 
     2px 2px 4px rgba(0, 0, 0, 0.5),
@@ -708,7 +715,7 @@ body.lotr-mode * {
 
 /* Links */
 body.lotr-mode a {
-  color: var(--lotr-bright-gold);
+  color: var(--lotr-bright-gold) !important;
   text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
   transition: all 0.3s ease;
 }
