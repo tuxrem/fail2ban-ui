@@ -486,7 +486,16 @@ func setDefaultsLocked() {
 		currentSettings.Language = "en"
 	}
 	if currentSettings.Port == 0 {
-		currentSettings.Port = 8080
+		// Check for PORT environment variable first
+		if portEnv := os.Getenv("PORT"); portEnv != "" {
+			if port, err := strconv.Atoi(portEnv); err == nil && port > 0 && port <= 65535 {
+				currentSettings.Port = port
+			} else {
+				currentSettings.Port = 8080
+			}
+		} else {
+			currentSettings.Port = 8080
+		}
 	}
 	if currentSettings.CallbackURL == "" {
 		currentSettings.CallbackURL = fmt.Sprintf("http://127.0.0.1:%d", currentSettings.Port)

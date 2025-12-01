@@ -244,13 +244,16 @@ Comprehensive settings management for alerts, advanced banning, and system prefe
 
 #### Method 1: Container Deployment (Recommended for Production)
 
-**Pull the official image:**
-```bash
-podman pull registry.swissmakers.ch/infra/fail2ban-ui:latest
-```
+**Option A: Using Pre-built Image**
 
-**Run the container:**
+Pull and run the official image:
 ```bash
+# Pull the image
+podman pull registry.swissmakers.ch/infra/fail2ban-ui:latest
+# or with Docker:
+docker pull registry.swissmakers.ch/infra/fail2ban-ui:latest
+
+# Run the container
 podman run -d \
   --name fail2ban-ui \
   --network=host \
@@ -262,7 +265,74 @@ podman run -d \
   registry.swissmakers.ch/infra/fail2ban-ui:latest
 ```
 
-**📖 [Complete Container Deployment Guide](./deployment/container/README.md)**
+**Option B: Build from Source**
+
+Build your own container image:
+```bash
+# Clone the repository
+git clone https://github.com/swissmakers/fail2ban-ui.git
+cd fail2ban-ui
+
+# Build the image
+sudo podman build -t fail2ban-ui:latest .
+# or with Docker:
+sudo docker build -t fail2ban-ui:latest .
+
+# Run the container
+sudo podman run -d \
+  --name fail2ban-ui \
+  --network=host \
+  -v /opt/podman-fail2ban-ui:/config:Z \
+  -v /etc/fail2ban:/etc/fail2ban:Z \
+  -v /var/log:/var/log:ro \
+  -v /var/run/fail2ban:/var/run/fail2ban \
+  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
+  fail2ban-ui:latest
+```
+
+**Option C: Using Docker Compose**
+
+For easier management, use Docker Compose:
+```bash
+# Copy the example file
+cp docker-compose.example.yml docker-compose.yml
+
+# Edit docker-compose.yml to customize (e.g., change PORT)
+# Then start:
+docker-compose up -d
+```
+
+**Custom Port Configuration**
+
+Change the default port (8080) using the `PORT` environment variable:
+```bash
+podman run -d \
+  --name fail2ban-ui \
+  --network=host \
+  -e PORT=3080 \
+  -v /opt/podman-fail2ban-ui:/config:Z \
+  -v /etc/fail2ban:/etc/fail2ban:Z \
+  -v /var/log:/var/log:ro \
+  -v /var/run/fail2ban:/var/run/fail2ban \
+  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
+  registry.swissmakers.ch/infra/fail2ban-ui:latest
+```
+
+Access the web interface at `http://localhost3080`.
+
+**Volume Mounts Explained**
+
+| Volume | Required | Purpose |
+|--------|----------|---------|
+| `/config` | ✅ Yes | Stores SQLite database, application settings, and SSH keys for remote connections |
+| `/etc/fail2ban` | ✅ Yes* | Access to Fail2Ban configuration files (jails, filters, actions) |
+| `/var/run/fail2ban` | ✅ Yes* | Access to Fail2Ban control socket for local management |
+| `/var/log` | ⚠️ Optional | Read-only access to system logs for filter testing |
+| `/usr/share/GeoIP` | ⚠️ Optional | Read-only access to GeoIP databases for geographic analysis |
+
+*Required only if managing a local Fail2Ban instance. Not needed for remote-only deployments.
+
+**📖 [Complete Container Deployment Guide](./deployment/container/README.md)** - Detailed documentation including volume descriptions, SELinux configuration, and troubleshooting.
 
 #### Method 2: Systemd Service (Standalone)
 
@@ -284,7 +354,7 @@ go build -o fail2ban-ui ./cmd/server/main.go
 
 1. **Access the Web Interface**
    - Navigate to `http://localhost:8080` (or your configured port)
-   - Default port: `8080` (configurable in settings)
+   - Default port: `8080` (configurable via `PORT` environment variable or in UI settings)
 
 2. **Add Your First Server**
    - **Local Server**: Enable the local connector if Fail2Ban runs on the same host
@@ -301,8 +371,17 @@ go build -o fail2ban-ui ./cmd/server/main.go
 
 ### Deployment Guides
 
-- **[Container Deployment](./deployment/container/README.md)**: Complete guide for containerized deployments
-- **[Systemd Service Setup](./deployment/systemd/README.md)**: Standalone installation and service configuration
+- **[Container Deployment Guide](./deployment/container/README.md)**: 
+  - Building container images from source
+  - Running containers with Docker/Podman
+  - Volume mount explanations (required vs optional)
+  - Custom port configuration via `PORT` environment variable
+  - Docker Compose examples
+  - SELinux configuration
+  - Troubleshooting common issues
+
+- **[Systemd Service Setup](./deployment/systemd/README.md)**: Standalone installation and service configuration for non-containerized deployments
+
 - **[SELinux Configuration](./deployment/container/SELinux/)**: Security policies for SELinux-enabled systems
 
 ### Configuration
