@@ -26,20 +26,25 @@ body.lotr-mode {
   --lotr-text-light: #faf8f3;
 }
 
-/* Base Theme Overrides - Beautiful Background */
+/* Base Theme Overrides */
 body.lotr-mode {
-  background: 
+  background: url(/static/images/bg-overlay);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  backdrop-filter: blur(5px);
+  /*background: 
     radial-gradient(ellipse at top, rgba(26, 77, 46, 0.3) 0%, transparent 50%),
     radial-gradient(ellipse at bottom, rgba(45, 10, 79, 0.2) 0%, transparent 50%),
     linear-gradient(135deg, #001f0d 0%, #1f2622 30%, #000000 70%, #36370d 100%);
   background-attachment: fixed;
-  background-size: 100% 100%;
+  background-size: 100% 100%;*/
   color: var(--lotr-text-light);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   min-height: 100vh;
 }
 
-/* Enhanced Typography with Better Contrast */
+/* Typography */
 body.lotr-mode h1,
 body.lotr-mode h2,
 body.lotr-mode h3,
@@ -66,7 +71,7 @@ body.lotr-mode h3 {
   font-weight: 600;
 }
 
-/* Enhanced Cards - Beautiful Parchment Style */
+/* Cards */
 body.lotr-mode .bg-white {
   background: linear-gradient(135deg, var(--lotr-parchment) 0%, var(--lotr-warm-parchment) 100%) !important;
   border: 4px solid var(--lotr-gold);
@@ -138,7 +143,7 @@ body.lotr-mode .bg-white .text-gray-600 {
   color: var(--lotr-brown);
 }
 
-/* Beautiful Buttons - Medieval Shield Style */
+/* Buttons - Medieval Shield Style */
 body.lotr-mode button:not(.toast),
 body.lotr-mode .bg-blue-500:not(.toast),
 body.lotr-mode .bg-blue-600:not(.toast) {
@@ -201,7 +206,7 @@ body.lotr-mode button:active {
 body.lotr-mode nav.bg-blue-600:not(.toast), body.lotr-mode nav.bg-blue-600:hover {
   background: linear-gradient(135deg, #342e14 0%, #000000 50%, #916f00 100%) !important;
 }
-/* Enhanced Input Fields - Scroll Style */
+/* Input Fields - Scroll Style */
 body.lotr-mode input:not([type="checkbox"]):not([type="radio"]),
 body.lotr-mode select,
 body.lotr-mode textarea {
@@ -230,7 +235,7 @@ body.lotr-mode textarea:focus {
   outline: none;
 }
 
-/* Beautiful Navigation */
+/* Navigation */
 body.lotr-mode nav {
   background: linear-gradient(135deg, 
     var(--lotr-dark-brown) 0%, 
@@ -278,9 +283,12 @@ body.lotr-mode nav a:hover {
     0 0 10px rgba(212, 175, 55, 0.5);
 }
 
-/* Enhanced Loading Spinner - One Ring Animation */
+/* Loading Spinner - One Ring Animation */
 body.lotr-mode #loading-overlay {
-  background: rgba(13, 40, 24, 0.9) !important;
+  background: url("/static/images/loading-overlay");
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
   backdrop-filter: blur(8px);
 }
 
@@ -353,7 +361,7 @@ body.lotr-mode #loading-overlay .animate-spin::after {
   }
 }
 
-/* Enhanced Toast Notifications - Scroll Style */
+/* Toast Notifications - Scroll Style */
 body.lotr-mode .toast {
   background: linear-gradient(135deg, var(--lotr-parchment) 0%, var(--lotr-warm-parchment) 100%) !important;
   border: 3px solid var(--lotr-gold);
@@ -415,7 +423,7 @@ body.lotr-mode .text-blue-600 {
   font-weight: 600;
 }
 
-/* Enhanced Tables */
+/* Tables */
 body.lotr-mode table {
   border-collapse: separate;
   border-spacing: 0;
@@ -453,7 +461,7 @@ body.lotr-mode table tr:nth-child(even):hover td {
   background: var(--lotr-warm-parchment);
 }
 
-/* Enhanced Modal - Parchment Scroll */
+/* Modal - Parchment Scroll */
 body.lotr-mode .modal-content {
   background: linear-gradient(135deg, var(--lotr-parchment) 0%, var(--lotr-warm-parchment) 100%) !important;
   border: 5px solid var(--lotr-gold);
@@ -501,7 +509,7 @@ body.lotr-mode .modal-content h3::after {
   opacity: 0.5;
 }
 
-/* Enhanced Badges and Labels */
+/* Badges and Labels */
 body.lotr-mode .bg-green-100,
 body.lotr-mode .bg-green-500 {
   background: linear-gradient(135deg, var(--lotr-forest-green) 0%, var(--lotr-dark-green) 100%) !important;
@@ -528,7 +536,7 @@ body.lotr-mode .bg-yellow-400 {
   text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.5);
 }
 
-/* Enhanced Restart Banner */
+/* Restart Banner */
 body.lotr-mode #restartBanner {
   background: linear-gradient(135deg, 
     var(--lotr-bright-gold) 0%, 
@@ -543,7 +551,7 @@ body.lotr-mode #restartBanner {
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
 }
 
-/* Enhanced Select2 Styling */
+/* Select2 Styling */
 body.lotr-mode .select2-container--default .select2-selection {
   background: var(--lotr-warm-parchment) !important;
   border: 3px solid var(--lotr-stone-gray) !important;
@@ -568,7 +576,7 @@ body.lotr-mode .select2-container--default .select2-selection--multiple .select2
   margin-right: 6px;
 }
 
-/* Enhanced Scrollbar Styling */
+/* Scrollbar Styling */
 body.lotr-mode ::-webkit-scrollbar {
   width: 14px;
   height: 14px;
@@ -597,7 +605,7 @@ body.lotr-mode ::-webkit-scrollbar-thumb:hover {
     0 0 10px rgba(212, 175, 55, 0.5);
 }
 
-/* Beautiful Decorative Elements */
+/* Decorative Elements */
 body.lotr-mode .lotr-divider {
   height: 4px;
   background: linear-gradient(90deg, 
@@ -649,7 +657,7 @@ body.lotr-mode .lotr-divider::after {
   right: 20%;
 }
 
-/* Enhanced Glow Effects */
+/* Glow Effects */
 body.lotr-mode .lotr-glow {
   text-shadow: 
     0 0 15px var(--lotr-gold),
