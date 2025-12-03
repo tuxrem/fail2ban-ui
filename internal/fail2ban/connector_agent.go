@@ -291,3 +291,32 @@ func (ac *AgentConnector) TestFilter(ctx context.Context, filterName string, log
 	}
 	return resp.Output, nil
 }
+
+// GetJailConfig implements Connector.
+func (ac *AgentConnector) GetJailConfig(ctx context.Context, jail string) (string, error) {
+	var resp struct {
+		Config string `json:"config"`
+	}
+	if err := ac.get(ctx, fmt.Sprintf("/v1/jails/%s/config", url.PathEscape(jail)), &resp); err != nil {
+		return "", err
+	}
+	return resp.Config, nil
+}
+
+// SetJailConfig implements Connector.
+func (ac *AgentConnector) SetJailConfig(ctx context.Context, jail, content string) error {
+	payload := map[string]string{"config": content}
+	return ac.put(ctx, fmt.Sprintf("/v1/jails/%s/config", url.PathEscape(jail)), payload, nil)
+}
+
+// TestLogpath implements Connector.
+func (ac *AgentConnector) TestLogpath(ctx context.Context, logpath string) ([]string, error) {
+	payload := map[string]string{"logpath": logpath}
+	var resp struct {
+		Files []string `json:"files"`
+	}
+	if err := ac.post(ctx, "/v1/jails/test-logpath", payload, &resp); err != nil {
+		return []string{}, nil // Return empty on error
+	}
+	return resp.Files, nil
+}

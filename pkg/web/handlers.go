@@ -664,31 +664,140 @@ func IndexHandler(c *gin.Context) {
 	})
 }
 
-// GetJailFilterConfigHandler returns the raw filter config for a given jail
+// GetJailFilterConfigHandler returns both the filter config and jail config for a given jail
 func GetJailFilterConfigHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("GetJailFilterConfigHandler called (handlers.go)") // entry point
 	jail := c.Param("jail")
+	config.DebugLog("Jail name: %s", jail)
+	
 	conn, err := resolveConnector(c)
 	if err != nil {
+		config.DebugLog("Failed to resolve connector: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	cfg, err := conn.GetFilterConfig(c.Request.Context(), jail)
+	config.DebugLog("Connector resolved: %s", conn.Server().Name)
+	
+	config.DebugLog("Loading filter config for jail: %s", jail)
+	filterCfg, err := conn.GetFilterConfig(c.Request.Context(), jail)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		config.DebugLog("Failed to load filter config: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load filter config: " + err.Error()})
 		return
 	}
+	config.DebugLog("Filter config loaded, length: %d", len(filterCfg))
+	
+	config.DebugLog("Loading jail config for jail: %s", jail)
+	jailCfg, err := conn.GetJailConfig(c.Request.Context(), jail)
+	if err != nil {
+		config.DebugLog("Failed to load jail config: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load jail config: " + err.Error()})
+		return
+	}
+	config.DebugLog("Jail config loaded, length: %d", len(jailCfg))
+	
 	c.JSON(http.StatusOK, gin.H{
 		"jail":   jail,
-		"config": cfg,
+		"filter": filterCfg,
+		"jailConfig": jailCfg,
 	})
 }
 
-// SetJailFilterConfigHandler overwrites the current filter config with new content
+// SetJailFilterConfigHandler overwrites both the filter config and jail config with new content
 func SetJailFilterConfigHandler(c *gin.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			config.DebugLog("PANIC in SetJailFilterConfigHandler: %v", r)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Internal server error: %v", r)})
+		}
+	}()
+
 	config.DebugLog("----------------------------")
 	config.DebugLog("SetJailFilterConfigHandler called (handlers.go)") // entry point
+	jail := c.Param("jail")
+	config.DebugLog("Jail name: %s", jail)
+	
+	conn, err := resolveConnector(c)
+	if err != nil {
+		config.DebugLog("Failed to resolve connector: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	config.DebugLog("Connector resolved: %s (type: %s)", conn.Server().Name, conn.Server().Type)
+
+	// Parse JSON body (containing both filter and jail content)
+	var req struct {
+		Filter string `json:"filter"`
+		Jail   string `json:"jail"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		config.DebugLog("Failed to parse JSON body: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body: " + err.Error()})
+		return
+	}
+	config.DebugLog("Request parsed - Filter length: %d, Jail length: %d", len(req.Filter), len(req.Jail))
+	if len(req.Filter) > 0 {
+		config.DebugLog("Filter preview (first 100 chars): %s", req.Filter[:min(100, len(req.Filter))])
+	}
+	if len(req.Jail) > 0 {
+		config.DebugLog("Jail preview (first 100 chars): %s", req.Jail[:min(100, len(req.Jail))])
+	}
+
+	// Save filter config
+	if req.Filter != "" {
+		config.DebugLog("Saving filter config for jail: %s", jail)
+		if err := conn.SetFilterConfig(c.Request.Context(), jail, req.Filter); err != nil {
+			config.DebugLog("Failed to save filter config: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save filter config: " + err.Error()})
+			return
+		}
+		config.DebugLog("Filter config saved successfully")
+	} else {
+		config.DebugLog("No filter config provided, skipping")
+	}
+
+	// Save jail config
+	if req.Jail != "" {
+		config.DebugLog("Saving jail config for jail: %s", jail)
+		if err := conn.SetJailConfig(c.Request.Context(), jail, req.Jail); err != nil {
+			config.DebugLog("Failed to save jail config: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save jail config: " + err.Error()})
+			return
+		}
+		config.DebugLog("Jail config saved successfully")
+	} else {
+		config.DebugLog("No jail config provided, skipping")
+	}
+
+	// Reload fail2ban
+	config.DebugLog("Reloading fail2ban")
+	if err := conn.Reload(c.Request.Context()); err != nil {
+		config.DebugLog("Failed to reload fail2ban: %v", err)
+		// Still return success but warn about reload failure
+		// The config was saved successfully, user can manually reload
+		c.JSON(http.StatusOK, gin.H{
+			"message": "Config saved successfully, but fail2ban reload failed",
+			"warning": "Please check the fail2ban configuration and reload manually: " + err.Error(),
+		})
+		return
+	}
+	config.DebugLog("Fail2ban reloaded successfully")
+
+	c.JSON(http.StatusOK, gin.H{"message": "Filter and jail config updated and fail2ban reloaded"})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// TestLogpathHandler tests a logpath and returns matching files
+func TestLogpathHandler(c *gin.Context) {
+	config.DebugLog("----------------------------")
+	config.DebugLog("TestLogpathHandler called (handlers.go)") // entry point
 	jail := c.Param("jail")
 	conn, err := resolveConnector(c)
 	if err != nil {
@@ -696,26 +805,31 @@ func SetJailFilterConfigHandler(c *gin.Context) {
 		return
 	}
 
-	// Parse JSON body (containing the new filter content)
-	var req struct {
-		Config string `json:"config"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON body"})
+	// Get jail config to extract logpath
+	jailCfg, err := conn.GetJailConfig(c.Request.Context(), jail)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load jail config: " + err.Error()})
 		return
 	}
 
-	if err := conn.SetFilterConfig(c.Request.Context(), jail, req.Config); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	// Extract logpath from jail config
+	logpath := fail2ban.ExtractLogpathFromJailConfig(jailCfg)
+	if logpath == "" {
+		c.JSON(http.StatusOK, gin.H{"files": []string{}, "message": "No logpath configured for this jail"})
 		return
 	}
 
-	if err := conn.Reload(c.Request.Context()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "filter saved but reload failed: " + err.Error()})
+	// Test the logpath
+	files, err := conn.TestLogpath(c.Request.Context(), logpath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to test logpath: " + err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Filter updated and fail2ban reloaded"})
+	c.JSON(http.StatusOK, gin.H{
+		"logpath": logpath,
+		"files":   files,
+	})
 }
 
 // ManageJailsHandler returns a list of all jails (from jail.local and jail.d)

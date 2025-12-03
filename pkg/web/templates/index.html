@@ -627,39 +627,80 @@
     <div class="relative flex min-h-full w-full items-center justify-center p-2 sm:p-4">
       <div class="fixed inset-0 bg-gray-500 opacity-75" aria-hidden="true"></div>
       
-      <div class="relative z-10 w-full rounded-lg bg-white text-left shadow-xl transition-all my-4 sm:my-8 max-h-screen overflow-y-auto" style="max-width: 90vw; max-height: calc(100vh - 2rem);">
-        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+      <div class="relative z-10 w-full rounded-lg bg-white text-left shadow-xl transition-all my-4 sm:my-8" style="max-width: 90vw; max-height: calc(100vh - 2rem); display: flex; flex-direction: column;">
+        <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4" style="flex: 1; overflow-y: auto; min-height: 0;">
           <div class="sm:flex sm:items-start">
             <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
               <h3 class="text-lg leading-6 font-medium text-gray-900">
                 <span data-i18n="modal.filter_config">Filter Config:</span> <span id="modalJailName"></span>
               </h3>
-              <div class="mt-4">
-                <textarea id="jailConfigTextarea" 
-                  class="w-full border border-gray-700 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-96 font-mono text-sm bg-gray-900 text-white resize-none overflow-auto"
-                  spellcheck="false"
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  data-lpignore="true"
-                  data-1p-ignore="true"
-                  data-bwignore="true"
-                  data-form-type="other"
-                  data-extension-ignore="true"
-                  data-icloud-keychain-ignore="true"
-                  data-safari-autofill="false"
-                  role="textbox"
-                  aria-label="Filter configuration editor"
-                  name="filter-config-editor"
-                  inputmode="text"
-                  style="caret-color: #ffffff; line-height: 1.5; tab-size: 2; width: 100%; min-width: 100%; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none;"
-                  wrap="off"
-                  onfocus="preventExtensionInterference(this);"></textarea>
+              <div class="mt-4 space-y-4">
+                <!-- Filter Configuration -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="modal.filter_config_label">Filter Configuration</label>
+                  <textarea id="filterConfigTextarea" 
+                    class="w-full border border-gray-700 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 h-96 font-mono text-sm bg-gray-900 text-white resize-none overflow-auto"
+                    spellcheck="false"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    data-form-type="other"
+                    data-extension-ignore="true"
+                    data-icloud-keychain-ignore="true"
+                    data-safari-autofill="false"
+                    role="textbox"
+                    aria-label="Filter configuration editor"
+                    name="filter-config-editor"
+                    inputmode="text"
+                    style="caret-color: #ffffff; line-height: 1.5; tab-size: 2; width: 100%; min-width: 100%; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none;"
+                    wrap="off"
+                    onfocus="preventExtensionInterference(this);"></textarea>
+                </div>
+                
+                <!-- Divider -->
+                <div class="border-t border-gray-300"></div>
+                
+                <!-- Jail Configuration -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2" data-i18n="modal.jail_config_label">Jail Configuration</label>
+                  <textarea id="jailConfigTextarea" 
+                    class="w-full border border-gray-700 rounded-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm bg-gray-900 text-white resize-none overflow-auto"
+                    spellcheck="false"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    data-lpignore="true"
+                    data-1p-ignore="true"
+                    data-bwignore="true"
+                    data-form-type="other"
+                    data-extension-ignore="true"
+                    data-icloud-keychain-ignore="true"
+                    data-safari-autofill="false"
+                    role="textbox"
+                    aria-label="Jail configuration editor"
+                    name="jail-config-editor"
+                    inputmode="text"
+                    style="height: 300px; caret-color: #ffffff; line-height: 1.5; tab-size: 2; width: 100%; min-width: 100%; max-width: 100%; box-sizing: border-box; -webkit-appearance: none; appearance: none;"
+                    wrap="off"
+                    onfocus="preventExtensionInterference(this);"></textarea>
+                </div>
+                
+                <!-- Test Logpath Button (only shown if logpath is set) -->
+                <div id="testLogpathSection" class="hidden">
+                  <button type="button" 
+                    class="inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    onclick="testLogpath()"
+                    data-i18n="modal.test_logpath">Test Logpath</button>
+                  <div id="logpathResults" class="mt-2 p-3 bg-gray-100 rounded-md text-sm font-mono max-h-32 overflow-y-auto hidden"></div>
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+        <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse" style="flex-shrink: 0;">
           <button type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm" onclick="saveJailConfig()" data-i18n="modal.save">Save</button>
           <button type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" onclick="closeModal('jailConfigModal')" data-i18n="modal.cancel">Cancel</button>
         </div>
@@ -2641,13 +2682,20 @@
 
     function openJailConfigModal(jailName) {
       currentJailForConfig = jailName;
-      var textArea = document.getElementById('jailConfigTextarea');
-      textArea.value = '';
+      var filterTextArea = document.getElementById('filterConfigTextarea');
+      var jailTextArea = document.getElementById('jailConfigTextarea');
+      filterTextArea.value = '';
+      jailTextArea.value = '';
 
       // Prevent browser extensions from interfering
-      preventExtensionInterference(textArea);
+      preventExtensionInterference(filterTextArea);
+      preventExtensionInterference(jailTextArea);
 
       document.getElementById('modalJailName').textContent = jailName;
+
+      // Hide test logpath section initially
+      document.getElementById('testLogpathSection').classList.add('hidden');
+      document.getElementById('logpathResults').classList.add('hidden');
 
       showLoading(true);
       var url = '/api/jails/' + encodeURIComponent(jailName) + '/config';
@@ -2660,13 +2708,23 @@
             showToast("Error loading config: " + data.error, 'error');
             return;
           }
-          textArea.value = data.config;
+          filterTextArea.value = data.filter || '';
+          jailTextArea.value = data.jailConfig || '';
+          
+          // Check if logpath is set in jail config and show test button
+          updateLogpathButtonVisibility();
+          
+          // Add listener to update button visibility when jail config changes
+          jailTextArea.addEventListener('input', updateLogpathButtonVisibility);
+          
           // Prevent extension interference before opening modal
-          preventExtensionInterference(textArea);
+          preventExtensionInterference(filterTextArea);
+          preventExtensionInterference(jailTextArea);
           openModal('jailConfigModal');
           // Call again after a short delay to ensure it's set after modal is visible
           setTimeout(function() {
-            preventExtensionInterference(textArea);
+            preventExtensionInterference(filterTextArea);
+            preventExtensionInterference(jailTextArea);
           }, 100);
         })
         .catch(function(err) {
@@ -2677,32 +2735,94 @@
         });
     }
 
+    function updateLogpathButtonVisibility() {
+      var jailTextArea = document.getElementById('jailConfigTextarea');
+      var jailConfig = jailTextArea ? jailTextArea.value : '';
+      var hasLogpath = /logpath\s*=/i.test(jailConfig);
+      var testSection = document.getElementById('testLogpathSection');
+      if (hasLogpath && testSection) {
+        testSection.classList.remove('hidden');
+      } else if (testSection) {
+        testSection.classList.add('hidden');
+        document.getElementById('logpathResults').classList.add('hidden');
+      }
+    }
+
     function saveJailConfig() {
       if (!currentJailForConfig) return;
       showLoading(true);
 
-      var newConfig = document.getElementById('jailConfigTextarea').value;
+      var filterConfig = document.getElementById('filterConfigTextarea').value;
+      var jailConfig = document.getElementById('jailConfigTextarea').value;
       var url = '/api/jails/' + encodeURIComponent(currentJailForConfig) + '/config';
       fetch(withServerParam(url), {
         method: 'POST',
         headers: serverHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ config: newConfig }),
+        body: JSON.stringify({ filter: filterConfig, jail: jailConfig }),
       })
-        .then(function(res) { return res.json(); })
+        .then(function(res) {
+          if (!res.ok) {
+            return res.json().then(function(data) {
+              throw new Error(data.error || 'Server returned ' + res.status);
+            });
+          }
+          return res.json();
+        })
         .then(function(data) {
           if (data.error) {
             showToast("Error saving config: " + data.error, 'error');
             return;
           }
           closeModal('jailConfigModal');
-          showToast(t('filter_debug.save_success', 'Filter saved and reloaded'), 'success');
+          showToast(t('filter_debug.save_success', 'Filter and jail config saved and reloaded'), 'success');
           return refreshData({ silent: true });
         })
         .catch(function(err) {
-          showToast("Error: " + err, 'error');
+          console.error("Error saving config:", err);
+          showToast("Error saving config: " + err.message, 'error');
         })
         .finally(function() {
           showLoading(false);
+        });
+    }
+
+    function testLogpath() {
+      if (!currentJailForConfig) return;
+      
+      var resultsDiv = document.getElementById('logpathResults');
+      resultsDiv.textContent = 'Testing logpath...';
+      resultsDiv.classList.remove('hidden');
+      resultsDiv.classList.remove('text-red-600', 'text-yellow-600');
+      
+      showLoading(true);
+      var url = '/api/jails/' + encodeURIComponent(currentJailForConfig) + '/logpath/test';
+      fetch(withServerParam(url), {
+        method: 'POST',
+        headers: serverHeaders({ 'Content-Type': 'application/json' }),
+      })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          showLoading(false);
+          if (data.error) {
+            resultsDiv.textContent = 'Error: ' + data.error;
+            resultsDiv.classList.add('text-red-600');
+            return;
+          }
+          
+          var files = data.files || [];
+          if (files.length === 0) {
+            resultsDiv.textContent = 'No files found for logpath: ' + (data.logpath || 'N/A');
+            resultsDiv.classList.remove('text-red-600');
+            resultsDiv.classList.add('text-yellow-600');
+          } else {
+            resultsDiv.textContent = 'Found ' + files.length + ' file(s):\n' + files.join('\n');
+            resultsDiv.classList.remove('text-red-600', 'text-yellow-600');
+          }
+        })
+        .catch(function(err) {
+          showLoading(false);
+          resultsDiv.textContent = 'Error: ' + err;
+          resultsDiv.classList.add('text-red-600');
         });
     }
 

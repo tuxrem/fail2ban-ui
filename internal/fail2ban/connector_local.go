@@ -252,6 +252,21 @@ func (lc *LocalConnector) TestFilter(ctx context.Context, filterName string, log
 	return TestFilterLocal(filterName, logLines)
 }
 
+// GetJailConfig implements Connector.
+func (lc *LocalConnector) GetJailConfig(ctx context.Context, jail string) (string, error) {
+	return GetJailConfig(jail)
+}
+
+// SetJailConfig implements Connector.
+func (lc *LocalConnector) SetJailConfig(ctx context.Context, jail, content string) error {
+	return SetJailConfig(jail, content)
+}
+
+// TestLogpath implements Connector.
+func (lc *LocalConnector) TestLogpath(ctx context.Context, logpath string) ([]string, error) {
+	return TestLogpath(logpath)
+}
+
 func executeShellCommand(ctx context.Context, command string) (string, error) {
 	parts := strings.Fields(command)
 	if len(parts) == 0 {

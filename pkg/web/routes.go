@@ -34,6 +34,7 @@ func RegisterRoutes(r *gin.Engine) {
 		// Routes for jail-filter management (TODO: rename API-call)
 		api.GET("/jails/:jail/config", GetJailFilterConfigHandler)
 		api.POST("/jails/:jail/config", SetJailFilterConfigHandler)
+		api.POST("/jails/:jail/logpath/test", TestLogpathHandler)
 
 		// Routes for jail management
 		api.GET("/jails/manage", ManageJailsHandler)

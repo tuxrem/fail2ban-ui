@@ -318,18 +318,24 @@ func (sc *SSHConnector) buildSSHArgs(command []string) []string {
 
 // GetAllJails implements Connector.
 func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
-	// Read jail.local and jail.d files remotely
+	// Read jail.local (DEFAULT only) and jail.d files remotely
 	var allJails []JailInfo
 
-	// Parse jail.local
+	// Parse jail.local (only DEFAULT section, skip other jails)
 	jailLocalContent, err := sc.runRemoteCommand(ctx, []string{"cat", "/etc/fail2ban/jail.local"})
 	if err == nil {
+		// Filter to only include DEFAULT section jails (though DEFAULT itself isn't returned as a jail)
 		jails := parseJailConfigContent(jailLocalContent)
-		allJails = append(allJails, jails...)
+		// Filter out DEFAULT section - we only want actual jails
+		for _, jail := range jails {
+			if jail.JailName != "DEFAULT" {
+				allJails = append(allJails, jail)
+			}
+		}
 	}
 
 	// Parse jail.d directory
-	jailDCmd := "find /etc/fail2ban/jail.d -maxdepth 1 -name '*.conf' -type f"
+	jailDCmd := "find /etc/fail2ban/jail.d -maxdepth 1 -name '*.conf' -type f 2>/dev/null"
 	jailDList, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", jailDCmd})
 	if err == nil && jailDList != "" {
 		for _, file := range strings.Split(jailDList, "\n") {
@@ -350,38 +356,79 @@ func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
 
 // UpdateJailEnabledStates implements Connector.
 func (sc *SSHConnector) UpdateJailEnabledStates(ctx context.Context, updates map[string]bool) error {
-	// Read current jail.local
-	content, err := sc.runRemoteCommand(ctx, []string{"cat", "/etc/fail2ban/jail.local"})
+	// Ensure jail.d directory exists
+	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", "/etc/fail2ban/jail.d"})
 	if err != nil {
-		return fmt.Errorf("failed to read jail.local: %w", err)
+		return fmt.Errorf("failed to create jail.d directory: %w", err)
 	}
 
-	// Update enabled states
-	lines := strings.Split(content, "\n")
-	var outputLines []string
-	var currentJail string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			currentJail = strings.Trim(trimmed, "[]")
-			outputLines = append(outputLines, line)
-		} else if strings.HasPrefix(trimmed, "enabled") {
-			if val, ok := updates[currentJail]; ok {
-				outputLines = append(outputLines, fmt.Sprintf("enabled = %t", val))
-				delete(updates, currentJail)
+	// Update each jail in its own file
+	for jailName, enabled := range updates {
+		jailPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.conf", jailName)
+
+		// Read existing file if it exists
+		content, err := sc.runRemoteCommand(ctx, []string{"cat", jailPath})
+		if err != nil {
+			// File doesn't exist, create new one
+			newContent := fmt.Sprintf("[%s]\nenabled = %t\n", jailName, enabled)
+			cmd := fmt.Sprintf("cat <<'EOF' | tee %s >/dev/null\n%s\nEOF", jailPath, newContent)
+			if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd}); err != nil {
+				return fmt.Errorf("failed to write jail file %s: %w", jailPath, err)
+			}
+			continue
+		}
+
+		// Update enabled state in existing file
+		lines := strings.Split(content, "\n")
+		var outputLines []string
+		var foundEnabled bool
+		var currentJail string
+
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+				currentJail = strings.Trim(trimmed, "[]")
+				outputLines = append(outputLines, line)
+			} else if strings.HasPrefix(strings.ToLower(trimmed), "enabled") {
+				if currentJail == jailName {
+					outputLines = append(outputLines, fmt.Sprintf("enabled = %t", enabled))
+					foundEnabled = true
+				} else {
+					outputLines = append(outputLines, line)
+				}
 			} else {
 				outputLines = append(outputLines, line)
 			}
-		} else {
-			outputLines = append(outputLines, line)
+		}
+
+		// If enabled line not found, add it after the jail section header
+		if !foundEnabled {
+			var newLines []string
+			for i, line := range outputLines {
+				newLines = append(newLines, line)
+				if strings.TrimSpace(line) == fmt.Sprintf("[%s]", jailName) {
+					newLines = append(newLines, fmt.Sprintf("enabled = %t", enabled))
+					if i+1 < len(outputLines) {
+						newLines = append(newLines, outputLines[i+1:]...)
+					}
+					break
+				}
+			}
+			if len(newLines) > len(outputLines) {
+				outputLines = newLines
+			} else {
+				outputLines = append(outputLines, fmt.Sprintf("enabled = %t", enabled))
+			}
+		}
+
+		// Write updated content
+		newContent := strings.Join(outputLines, "\n")
+		cmd := fmt.Sprintf("cat <<'EOF' | tee %s >/dev/null\n%s\nEOF", jailPath, newContent)
+		if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd}); err != nil {
+			return fmt.Errorf("failed to write jail file %s: %w", jailPath, err)
 		}
 	}
-
-	// Write back
-	newContent := strings.Join(outputLines, "\n")
-	cmd := fmt.Sprintf("cat <<'EOF' | tee /etc/fail2ban/jail.local >/dev/null\n%s\nEOF", newContent)
-	_, err = sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
-	return err
+	return nil
 }
 
 // GetFilters implements Connector.
@@ -473,16 +520,94 @@ fail2ban-regex "$TMPFILE" "$FILTER_PATH" || true
 	return out, nil
 }
 
+// GetJailConfig implements Connector.
+func (sc *SSHConnector) GetJailConfig(ctx context.Context, jail string) (string, error) {
+	jailPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.conf", jail)
+	out, err := sc.runRemoteCommand(ctx, []string{"cat", jailPath})
+	if err != nil {
+		// If file doesn't exist, return empty jail section
+		return fmt.Sprintf("[%s]\n", jail), nil
+	}
+	return out, nil
+}
+
+// SetJailConfig implements Connector.
+func (sc *SSHConnector) SetJailConfig(ctx context.Context, jail, content string) error {
+	jailPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.conf", jail)
+	// Ensure jail.d directory exists
+	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", "/etc/fail2ban/jail.d"})
+	if err != nil {
+		return fmt.Errorf("failed to create jail.d directory: %w", err)
+	}
+
+	cmd := fmt.Sprintf("cat <<'EOF' | tee %s >/dev/null\n%s\nEOF", jailPath, content)
+	_, err = sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
+	return err
+}
+
+// TestLogpath implements Connector.
+func (sc *SSHConnector) TestLogpath(ctx context.Context, logpath string) ([]string, error) {
+	if logpath == "" {
+		return []string{}, nil
+	}
+
+	logpath = strings.TrimSpace(logpath)
+	hasWildcard := strings.ContainsAny(logpath, "*?[")
+
+	var script string
+	if hasWildcard {
+		// Use find with glob pattern
+		script = fmt.Sprintf(`
+set -e
+LOGPATH=%q
+# Use find for glob patterns
+find $(dirname "$LOGPATH") -maxdepth 1 -path "$LOGPATH" -type f 2>/dev/null | sort
+`, logpath)
+	} else {
+		// Check if it's a directory or file
+		script = fmt.Sprintf(`
+set -e
+LOGPATH=%q
+if [ -d "$LOGPATH" ]; then
+  find "$LOGPATH" -maxdepth 1 -type f 2>/dev/null | sort
+elif [ -f "$LOGPATH" ]; then
+  echo "$LOGPATH"
+fi
+`, logpath)
+	}
+
+	out, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", script})
+	if err != nil {
+		return []string{}, nil // Return empty on error
+	}
+
+	var matches []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			matches = append(matches, line)
+		}
+	}
+	return matches, nil
+}
+
 // parseJailConfigContent parses jail configuration content and returns JailInfo slice.
 func parseJailConfigContent(content string) []JailInfo {
 	var jails []JailInfo
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	var currentJail string
 	enabled := true
+
+	// Sections that should be ignored (not jails)
+	ignoredSections := map[string]bool{
+		"DEFAULT":  true,
+		"INCLUDES": true,
+	}
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			if currentJail != "" && currentJail != "DEFAULT" {
+			if currentJail != "" && !ignoredSections[currentJail] {
 				jails = append(jails, JailInfo{
 					JailName: currentJail,
 					Enabled:  enabled,
@@ -498,7 +623,7 @@ func parseJailConfigContent(content string) []JailInfo {
 			}
 		}
 	}
-	if currentJail != "" && currentJail != "DEFAULT" {
+	if currentJail != "" && !ignoredSections[currentJail] {
 		jails = append(jails, JailInfo{
 			JailName: currentJail,
 			Enabled:  enabled,
