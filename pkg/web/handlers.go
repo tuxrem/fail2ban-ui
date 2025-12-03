@@ -670,7 +670,7 @@ func GetJailFilterConfigHandler(c *gin.Context) {
 	config.DebugLog("GetJailFilterConfigHandler called (handlers.go)") // entry point
 	jail := c.Param("jail")
 	config.DebugLog("Jail name: %s", jail)
-	
+
 	conn, err := resolveConnector(c)
 	if err != nil {
 		config.DebugLog("Failed to resolve connector: %v", err)
@@ -678,28 +678,67 @@ func GetJailFilterConfigHandler(c *gin.Context) {
 		return
 	}
 	config.DebugLog("Connector resolved: %s", conn.Server().Name)
-	
+
+	var filterCfg string
+	var jailCfg string
+	var jailCfgLoaded bool
+	var filterErr error
+
+	// First, try to load filter config using jail name
 	config.DebugLog("Loading filter config for jail: %s", jail)
-	filterCfg, err := conn.GetFilterConfig(c.Request.Context(), jail)
-	if err != nil {
-		config.DebugLog("Failed to load filter config: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load filter config: " + err.Error()})
-		return
+	filterCfg, filterErr = conn.GetFilterConfig(c.Request.Context(), jail)
+	if filterErr != nil {
+		config.DebugLog("Failed to load filter config with jail name, trying to find filter from jail config: %v", filterErr)
+
+		// Load jail config first to check for custom filter directive
+		var jailErr error
+		jailCfg, jailErr = conn.GetJailConfig(c.Request.Context(), jail)
+		if jailErr != nil {
+			config.DebugLog("Failed to load jail config: %v", jailErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load filter config: " + filterErr.Error() + ". Also failed to load jail config: " + jailErr.Error()})
+			return
+		}
+		jailCfgLoaded = true
+		config.DebugLog("Jail config loaded, length: %d", len(jailCfg))
+
+		// Extract filter name from jail config
+		filterName := fail2ban.ExtractFilterFromJailConfig(jailCfg)
+		if filterName == "" {
+			config.DebugLog("No filter directive found in jail config")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load filter config: " + filterErr.Error() + ". No filter directive found in jail config."})
+			return
+		}
+
+		config.DebugLog("Found filter directive in jail config: %s, trying to load that filter", filterName)
+		// Try loading the filter specified in jail config
+		filterCfg, filterErr = conn.GetFilterConfig(c.Request.Context(), filterName)
+		if filterErr != nil {
+			config.DebugLog("Failed to load filter config for %s: %v", filterName, filterErr)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": fmt.Sprintf("Failed to load filter config. Tried '%s' (jail name) and '%s' (from jail config), both failed. Last error: %v", jail, filterName, filterErr),
+			})
+			return
+		}
+		config.DebugLog("Successfully loaded filter config for %s (from jail config directive)", filterName)
 	}
 	config.DebugLog("Filter config loaded, length: %d", len(filterCfg))
-	
-	config.DebugLog("Loading jail config for jail: %s", jail)
-	jailCfg, err := conn.GetJailConfig(c.Request.Context(), jail)
-	if err != nil {
-		config.DebugLog("Failed to load jail config: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load jail config: " + err.Error()})
-		return
+
+	// Load jail config if not already loaded
+	if !jailCfgLoaded {
+		config.DebugLog("Loading jail config for jail: %s", jail)
+		var jailErr error
+		jailCfg, jailErr = conn.GetJailConfig(c.Request.Context(), jail)
+		if jailErr != nil {
+			config.DebugLog("Failed to load jail config: %v", jailErr)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load jail config: " + jailErr.Error()})
+			return
+		}
+		config.DebugLog("Jail config loaded, length: %d", len(jailCfg))
 	}
-	config.DebugLog("Jail config loaded, length: %d", len(jailCfg))
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"jail":   jail,
-		"filter": filterCfg,
+		"jail":       jail,
+		"filter":     filterCfg,
 		"jailConfig": jailCfg,
 	})
 }
@@ -717,7 +756,7 @@ func SetJailFilterConfigHandler(c *gin.Context) {
 	config.DebugLog("SetJailFilterConfigHandler called (handlers.go)") // entry point
 	jail := c.Param("jail")
 	config.DebugLog("Jail name: %s", jail)
-	
+
 	conn, err := resolveConnector(c)
 	if err != nil {
 		config.DebugLog("Failed to resolve connector: %v", err)

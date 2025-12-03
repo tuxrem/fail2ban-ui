@@ -191,41 +191,6 @@ func UpdateJailEnabledStates(updates map[string]bool) error {
 	return nil
 }
 
-// updateJailConfigFile updates a single jail configuration file with the new enabled states.
-func updateJailConfigFile(path string, updates map[string]bool) error {
-	input, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	lines := strings.Split(string(input), "\n")
-	var outputLines []string
-	var currentJail string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			currentJail = strings.Trim(trimmed, "[]")
-			outputLines = append(outputLines, line)
-		} else if strings.HasPrefix(trimmed, "enabled") {
-			if val, ok := updates[currentJail]; ok {
-				outputLines = append(outputLines, fmt.Sprintf("enabled = %t", val))
-				// Remove the update from map to mark it as processed.
-				delete(updates, currentJail)
-			} else {
-				outputLines = append(outputLines, line)
-			}
-		} else {
-			outputLines = append(outputLines, line)
-		}
-	}
-	// For any jails in updates that did not have an "enabled" line, append it.
-	for jail, val := range updates {
-		outputLines = append(outputLines, fmt.Sprintf("[%s]", jail))
-		outputLines = append(outputLines, fmt.Sprintf("enabled = %t", val))
-	}
-	newContent := strings.Join(outputLines, "\n")
-	return os.WriteFile(path, []byte(newContent), 0644)
-}
-
 // MigrateJailsToJailD migrates all non-DEFAULT jails from jail.local to individual files in jail.d/.
 // Creates a backup of jail.local before migration. If a jail already exists in jail.d, jail.local takes precedence.
 func MigrateJailsToJailD() error {
@@ -557,37 +522,6 @@ func TestLogpath(logpath string) ([]string, error) {
 	return matches, nil
 }
 
-// parseJailSection extracts the logpath from a jail configuration content.
-func parseJailSection(content string, jailName string) (string, error) {
-	// This function can be used to extract specific settings from jail config
-	// For now, we'll use it to find logpath
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	var inTargetJail bool
-	var jailContent strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		trimmed := strings.TrimSpace(line)
-
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			currentJail := strings.Trim(trimmed, "[]")
-			if currentJail == jailName {
-				inTargetJail = true
-				jailContent.Reset()
-				jailContent.WriteString(line)
-				jailContent.WriteString("\n")
-			} else {
-				inTargetJail = false
-			}
-		} else if inTargetJail {
-			jailContent.WriteString(line)
-			jailContent.WriteString("\n")
-		}
-	}
-
-	return jailContent.String(), scanner.Err()
-}
-
 // ExtractLogpathFromJailConfig extracts the logpath value from jail configuration content.
 func ExtractLogpathFromJailConfig(jailContent string) string {
 	scanner := bufio.NewScanner(strings.NewReader(jailContent))
@@ -597,6 +531,32 @@ func ExtractLogpathFromJailConfig(jailContent string) string {
 			parts := strings.SplitN(line, "=", 2)
 			if len(parts) == 2 {
 				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return ""
+}
+
+// ExtractFilterFromJailConfig extracts the filter name from jail configuration content.
+// Handles formats like: filter = sshd, filter = sshd[mode=aggressive], etc.
+// Returns the base filter name (without parameters in brackets).
+func ExtractFilterFromJailConfig(jailContent string) string {
+	scanner := bufio.NewScanner(strings.NewReader(jailContent))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		// Skip comments
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(line), "filter") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				filterValue := strings.TrimSpace(parts[1])
+				// Extract base filter name (before [ if present)
+				if idx := strings.Index(filterValue, "["); idx >= 0 {
+					filterValue = filterValue[:idx]
+				}
+				return strings.TrimSpace(filterValue)
 			}
 		}
 	}
