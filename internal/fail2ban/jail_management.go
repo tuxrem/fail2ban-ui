@@ -627,17 +627,19 @@ func UpdateDefaultSettingsLocal(settings config.AppSettings) error {
 
 	// Parse existing content and update only specific keys in DEFAULT section
 	if existingContent == "" {
-		// File doesn't exist, create new one with DEFAULT section
-		defaultLines := []string{"[DEFAULT]"}
-		for _, key := range []string{"bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail"} {
-			defaultLines = append(defaultLines, keysToUpdate[key])
+		// File doesn't exist, create new one with banner and DEFAULT section
+		var newLines []string
+		newLines = append(newLines, strings.Split(strings.TrimRight(config.JailLocalBanner(), "\n"), "\n")...)
+		newLines = append(newLines, "[DEFAULT]")
+		for _, key := range []string{"bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail", "banaction", "banaction_allports"} {
+			newLines = append(newLines, keysToUpdate[key])
 		}
-		defaultLines = append(defaultLines, "")
-		newContent := strings.Join(defaultLines, "\n")
+		newLines = append(newLines, "")
+		newContent := strings.Join(newLines, "\n")
 		if err := os.WriteFile(localPath, []byte(newContent), 0644); err != nil {
 			return fmt.Errorf("failed to write jail.local: %w", err)
 		}
-		config.DebugLog("Created new jail.local with DEFAULT section")
+		config.DebugLog("Created new jail.local with banner and DEFAULT section")
 		return nil
 	}
 
@@ -647,9 +649,23 @@ func UpdateDefaultSettingsLocal(settings config.AppSettings) error {
 	inDefault := false
 	defaultSectionFound := false
 
+	// Always add the full banner at the start
+	outputLines = append(outputLines, strings.Split(strings.TrimRight(config.JailLocalBanner(), "\n"), "\n")...)
+
+	// Skip everything before [DEFAULT] section (old banner, comments, empty lines)
+	foundSection := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			// Found a section - stop skipping and process this line
+			foundSection = true
+		}
+		if !foundSection {
+			// Skip lines before any section (old banner, comments, empty lines)
+			continue
+		}
 
+		// Process lines after we found a section
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			sectionName := strings.Trim(trimmed, "[]")
 			if sectionName == "DEFAULT" {
@@ -695,7 +711,7 @@ func UpdateDefaultSettingsLocal(settings config.AppSettings) error {
 		outputLines = append(defaultLines, outputLines...)
 	} else {
 		// Add any missing keys to the DEFAULT section
-		for _, key := range []string{"bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail"} {
+		for _, key := range []string{"bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail", "banaction", "banaction_allports"} {
 			if !keysUpdated[key] {
 				// Find the DEFAULT section and insert after it
 				for i, line := range outputLines {
