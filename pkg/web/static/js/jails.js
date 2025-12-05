@@ -132,8 +132,34 @@ function saveJailConfig() {
     });
 }
 
+// Extract logpath from jail config text
+function extractLogpathFromConfig(configText) {
+  if (!configText) return '';
+  
+  // Match logpath = value (handles various formats)
+  var logpathMatch = configText.match(/^logpath\s*=\s*(.+)$/im);
+  if (logpathMatch && logpathMatch[1]) {
+    // Trim whitespace and remove quotes if present
+    var logpath = logpathMatch[1].trim();
+    // Remove surrounding quotes
+    logpath = logpath.replace(/^["']|["']$/g, '');
+    return logpath;
+  }
+  return '';
+}
+
 function testLogpath() {
   if (!currentJailForConfig) return;
+  
+  // Extract logpath from the textarea
+  var jailTextArea = document.getElementById('jailConfigTextarea');
+  var jailConfig = jailTextArea ? jailTextArea.value : '';
+  var logpath = extractLogpathFromConfig(jailConfig);
+  
+  if (!logpath) {
+    showToast('No logpath found in jail configuration. Please add a logpath line (e.g., logpath = /var/log/example.log)', 'warning');
+    return;
+  }
   
   var resultsDiv = document.getElementById('logpathResults');
   resultsDiv.textContent = 'Testing logpath...';
@@ -145,6 +171,7 @@ function testLogpath() {
   fetch(withServerParam(url), {
     method: 'POST',
     headers: serverHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ logpath: logpath })
   })
     .then(function(res) { return res.json(); })
     .then(function(data) {
@@ -163,28 +190,35 @@ function testLogpath() {
       var resolvedLogpath = data.resolved_logpath || '';
       var files = data.files || [];
       
-      // Build output message
+      // Build output message with better formatting
       var output = '';
+      
+      // Show original logpath
+      if (originalLogpath) {
+        output += 'Logpath:\n  ' + originalLogpath + '\n\n';
+      }
       
       // Show resolved logpath if different from original
       if (resolvedLogpath && resolvedLogpath !== originalLogpath) {
-        output += 'Resolved logpath: ' + resolvedLogpath + '\n\n';
+        output += 'Resolved logpath:\n  ' + resolvedLogpath + '\n\n';
       } else if (resolvedLogpath) {
-        output += 'Logpath: ' + resolvedLogpath + '\n\n';
-      } else if (originalLogpath) {
-        output += 'Logpath: ' + originalLogpath + '\n\n';
+        //output += 'Logpath:\n  ' + resolvedLogpath + '\n\n';
       }
       
-      // Show files found
+      // Show files found with better formatting
       if (files.length === 0) {
         output += 'No files found matching the logpath pattern.';
         resultsDiv.classList.remove('text-red-600');
         resultsDiv.classList.add('text-yellow-600');
       } else {
-        output += 'Found ' + files.length + ' file(s):\n' + files.join('\n');
+        output += 'Found ' + files.length + ' file(s):\n\n';
+        files.forEach(function(file, index) {
+          output += '  ' + (index + 1) + '. ' + file + '\n';
+        });
         resultsDiv.classList.remove('text-red-600', 'text-yellow-600');
       }
       
+      // Use textContent for plain text, but we could also use innerHTML for better formatting
       resultsDiv.textContent = output;
       
       // Auto-scroll to results

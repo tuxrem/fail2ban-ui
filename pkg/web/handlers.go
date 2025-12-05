@@ -861,6 +861,7 @@ func equalStringSlices(a, b []string) bool {
 
 // TestLogpathHandler tests a logpath and returns matching files
 // Resolves Fail2Ban variables before testing
+// Accepts optional logpath in request body, otherwise reads from saved jail config
 func TestLogpathHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("TestLogpathHandler called (handlers.go)") // entry point
@@ -871,22 +872,40 @@ func TestLogpathHandler(c *gin.Context) {
 		return
 	}
 
-	// Get jail config to extract logpath
-	jailCfg, err := conn.GetJailConfig(c.Request.Context(), jail)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load jail config: " + err.Error()})
-		return
+	var originalLogpath string
+
+	// Check if logpath is provided in request body
+	var reqBody struct {
+		Logpath string `json:"logpath"`
+	}
+	if err := c.ShouldBindJSON(&reqBody); err == nil && reqBody.Logpath != "" {
+		// Use logpath from request body (from textarea)
+		originalLogpath = strings.TrimSpace(reqBody.Logpath)
+		config.DebugLog("Using logpath from request body: %s", originalLogpath)
+	} else {
+		// Fall back to reading from saved jail config
+		jailCfg, err := conn.GetJailConfig(c.Request.Context(), jail)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load jail config: " + err.Error()})
+			return
+		}
+
+		// Extract logpath from jail config
+		originalLogpath = fail2ban.ExtractLogpathFromJailConfig(jailCfg)
+		if originalLogpath == "" {
+			c.JSON(http.StatusOK, gin.H{
+				"original_logpath": "",
+				"resolved_logpath": "",
+				"files":            []string{},
+				"message":          "No logpath configured for this jail",
+			})
+			return
+		}
+		config.DebugLog("Using logpath from saved jail config: %s", originalLogpath)
 	}
 
-	// Extract logpath from jail config
-	originalLogpath := fail2ban.ExtractLogpathFromJailConfig(jailCfg)
 	if originalLogpath == "" {
-		c.JSON(http.StatusOK, gin.H{
-			"original_logpath": "",
-			"resolved_logpath": "",
-			"files":            []string{},
-			"message":          "No logpath configured for this jail",
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No logpath provided"})
 		return
 	}
 
