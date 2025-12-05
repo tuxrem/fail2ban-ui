@@ -730,6 +730,150 @@ fi
 	return matches, nil
 }
 
+// TestLogpathWithResolution implements Connector.
+// Resolves variables on remote system, then tests the resolved path.
+func (sc *SSHConnector) TestLogpathWithResolution(ctx context.Context, logpath string) (originalPath, resolvedPath string, files []string, err error) {
+	originalPath = strings.TrimSpace(logpath)
+	if originalPath == "" {
+		return originalPath, "", []string{}, nil
+	}
+
+	// Create Python script to resolve variables on remote system
+	resolveScript := fmt.Sprintf(`python3 - <<'PYEOF'
+import os
+import re
+import glob
+from pathlib import Path
+
+def extract_variables(s):
+    """Extract all variable names from a string."""
+    pattern = r'%%\(([^)]+)\)s'
+    return re.findall(pattern, s)
+
+def find_variable_definition(var_name, fail2ban_path="/etc/fail2ban"):
+    """Search for variable definition in all .conf files."""
+    var_name_lower = var_name.lower()
+    
+    for conf_file in Path(fail2ban_path).rglob("*.conf"):
+        try:
+            with open(conf_file, 'r') as f:
+                current_var = None
+                current_value = []
+                in_multiline = False
+                
+                for line in f:
+                    original_line = line
+                    line = line.strip()
+                    
+                    if not in_multiline:
+                        if '=' in line and not line.startswith('#'):
+                            parts = line.split('=', 1)
+                            key = parts[0].strip()
+                            value = parts[1].strip()
+                            
+                            if key.lower() == var_name_lower:
+                                current_var = key
+                                current_value = [value]
+                                in_multiline = True
+                                continue
+                    else:
+                        # Check if continuation or new variable/section
+                        if line.startswith('[') or (not line.startswith(' ') and '=' in line and not line.startswith('\t')):
+                            # End of multi-line
+                            return ' '.join(current_value)
+                        else:
+                            # Continuation
+                            current_value.append(line)
+                
+                if in_multiline and current_var:
+                    return ' '.join(current_value)
+        except:
+            continue
+    
+    return None
+
+def resolve_variable_recursive(var_name, visited=None):
+    """Resolve variable recursively."""
+    if visited is None:
+        visited = set()
+    
+    if var_name in visited:
+        raise ValueError(f"Circular reference detected for variable '{var_name}'")
+    
+    visited.add(var_name)
+    
+    try:
+        value = find_variable_definition(var_name)
+        if value is None:
+            raise ValueError(f"Variable '{var_name}' not found")
+        
+        # Check for nested variables
+        nested_vars = extract_variables(value)
+        if not nested_vars:
+            return value
+        
+        # Resolve nested variables
+        resolved = value
+        for nested_var in nested_vars:
+            nested_value = resolve_variable_recursive(nested_var, visited.copy())
+            pattern = f'%%({re.escape(nested_var)})s'
+            resolved = re.sub(pattern, nested_value, resolved)
+        
+        return resolved
+    finally:
+        visited.discard(var_name)
+
+def resolve_logpath(logpath):
+    """Resolve all variables in logpath."""
+    variables = extract_variables(logpath)
+    if not variables:
+        return logpath
+    
+    resolved = logpath
+    for var_name in variables:
+        var_value = resolve_variable_recursive(var_name)
+        pattern = f'%%({re.escape(var_name)})s'
+        resolved = re.sub(pattern, var_value, resolved)
+    
+    return resolved
+
+# Main
+logpath = %q
+try:
+    resolved = resolve_logpath(logpath)
+    print(f"RESOLVED:{resolved}")
+except Exception as e:
+    print(f"ERROR:{str(e)}")
+    exit(1)
+PYEOF
+`, originalPath)
+
+	// Run resolution script
+	resolveOut, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", resolveScript})
+	if err != nil {
+		return originalPath, "", nil, fmt.Errorf("failed to resolve variables: %w", err)
+	}
+
+	resolveOut = strings.TrimSpace(resolveOut)
+	if strings.HasPrefix(resolveOut, "ERROR:") {
+		return originalPath, "", nil, fmt.Errorf(strings.TrimPrefix(resolveOut, "ERROR:"))
+	}
+	if strings.HasPrefix(resolveOut, "RESOLVED:") {
+		resolvedPath = strings.TrimPrefix(resolveOut, "RESOLVED:")
+	} else {
+		// Fallback: use original if resolution failed
+		resolvedPath = originalPath
+	}
+
+	// Test the resolved path
+	files, err = sc.TestLogpath(ctx, resolvedPath)
+	if err != nil {
+		return originalPath, resolvedPath, nil, fmt.Errorf("failed to test logpath: %w", err)
+	}
+
+	return originalPath, resolvedPath, files, nil
+}
+
 // UpdateDefaultSettings implements Connector.
 func (sc *SSHConnector) UpdateDefaultSettings(ctx context.Context, settings config.AppSettings) error {
 	jailLocalPath := "/etc/fail2ban/jail.local"

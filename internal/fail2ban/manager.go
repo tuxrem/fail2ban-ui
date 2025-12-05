@@ -34,6 +34,7 @@ type Connector interface {
 	GetJailConfig(ctx context.Context, jail string) (string, error)
 	SetJailConfig(ctx context.Context, jail, content string) error
 	TestLogpath(ctx context.Context, logpath string) ([]string, error)
+	TestLogpathWithResolution(ctx context.Context, logpath string) (originalPath, resolvedPath string, files []string, err error)
 
 	// Default settings operations
 	UpdateDefaultSettings(ctx context.Context, settings config.AppSettings) error

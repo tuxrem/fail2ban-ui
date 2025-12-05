@@ -321,6 +321,46 @@ func (ac *AgentConnector) TestLogpath(ctx context.Context, logpath string) ([]st
 	return resp.Files, nil
 }
 
+// TestLogpathWithResolution implements Connector.
+// Agent server should handle variable resolution.
+func (ac *AgentConnector) TestLogpathWithResolution(ctx context.Context, logpath string) (originalPath, resolvedPath string, files []string, err error) {
+	originalPath = strings.TrimSpace(logpath)
+	if originalPath == "" {
+		return originalPath, "", []string{}, nil
+	}
+
+	payload := map[string]string{"logpath": originalPath}
+	var resp struct {
+		OriginalLogpath string   `json:"original_logpath"`
+		ResolvedLogpath string   `json:"resolved_logpath"`
+		Files           []string `json:"files"`
+		Error           string   `json:"error,omitempty"`
+	}
+
+	// Try new endpoint first, fallback to old endpoint
+	if err := ac.post(ctx, "/v1/jails/test-logpath-with-resolution", payload, &resp); err != nil {
+		// Fallback: use old endpoint and assume no resolution
+		files, err2 := ac.TestLogpath(ctx, originalPath)
+		if err2 != nil {
+			return originalPath, "", nil, fmt.Errorf("failed to test logpath: %w", err2)
+		}
+		return originalPath, originalPath, files, nil
+	}
+
+	if resp.Error != "" {
+		return originalPath, "", nil, fmt.Errorf("agent error: %s", resp.Error)
+	}
+
+	if resp.ResolvedLogpath == "" {
+		resp.ResolvedLogpath = resp.OriginalLogpath
+	}
+	if resp.OriginalLogpath == "" {
+		resp.OriginalLogpath = originalPath
+	}
+
+	return resp.OriginalLogpath, resp.ResolvedLogpath, resp.Files, nil
+}
+
 // UpdateDefaultSettings implements Connector.
 func (ac *AgentConnector) UpdateDefaultSettings(ctx context.Context, settings config.AppSettings) error {
 	// Convert IgnoreIPs array to space-separated string

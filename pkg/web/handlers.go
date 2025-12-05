@@ -860,6 +860,7 @@ func equalStringSlices(a, b []string) bool {
 }
 
 // TestLogpathHandler tests a logpath and returns matching files
+// Resolves Fail2Ban variables before testing
 func TestLogpathHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
 	config.DebugLog("TestLogpathHandler called (handlers.go)") // entry point
@@ -878,22 +879,28 @@ func TestLogpathHandler(c *gin.Context) {
 	}
 
 	// Extract logpath from jail config
-	logpath := fail2ban.ExtractLogpathFromJailConfig(jailCfg)
-	if logpath == "" {
-		c.JSON(http.StatusOK, gin.H{"files": []string{}, "message": "No logpath configured for this jail"})
+	originalLogpath := fail2ban.ExtractLogpathFromJailConfig(jailCfg)
+	if originalLogpath == "" {
+		c.JSON(http.StatusOK, gin.H{
+			"original_logpath": "",
+			"resolved_logpath": "",
+			"files":            []string{},
+			"message":          "No logpath configured for this jail",
+		})
 		return
 	}
 
-	// Test the logpath
-	files, err := conn.TestLogpath(c.Request.Context(), logpath)
+	// Test the logpath with variable resolution
+	originalPath, resolvedPath, files, err := conn.TestLogpathWithResolution(c.Request.Context(), originalLogpath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to test logpath: " + err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"logpath": logpath,
-		"files":   files,
+		"original_logpath": originalPath,
+		"resolved_logpath": resolvedPath,
+		"files":            files,
 	})
 }
 

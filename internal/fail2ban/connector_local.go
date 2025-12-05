@@ -52,7 +52,7 @@ func (lc *LocalConnector) GetJailInfos(ctx context.Context) ([]JailInfo, error) 
 	}
 
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
-	
+
 	// Use parallel execution for better performance
 	type jailResult struct {
 		jail JailInfo
@@ -271,6 +271,11 @@ func (lc *LocalConnector) SetJailConfig(ctx context.Context, jail, content strin
 // TestLogpath implements Connector.
 func (lc *LocalConnector) TestLogpath(ctx context.Context, logpath string) ([]string, error) {
 	return TestLogpath(logpath)
+}
+
+// TestLogpathWithResolution implements Connector.
+func (lc *LocalConnector) TestLogpathWithResolution(ctx context.Context, logpath string) (originalPath, resolvedPath string, files []string, err error) {
+	return TestLogpathWithResolution(logpath)
 }
 
 // UpdateDefaultSettings implements Connector.

@@ -152,23 +152,54 @@ function testLogpath() {
       if (data.error) {
         resultsDiv.textContent = 'Error: ' + data.error;
         resultsDiv.classList.add('text-red-600');
+        // Auto-scroll to results
+        setTimeout(function() {
+          resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 100);
         return;
       }
       
+      var originalLogpath = data.original_logpath || '';
+      var resolvedLogpath = data.resolved_logpath || '';
       var files = data.files || [];
+      
+      // Build output message
+      var output = '';
+      
+      // Show resolved logpath if different from original
+      if (resolvedLogpath && resolvedLogpath !== originalLogpath) {
+        output += 'Resolved logpath: ' + resolvedLogpath + '\n\n';
+      } else if (resolvedLogpath) {
+        output += 'Logpath: ' + resolvedLogpath + '\n\n';
+      } else if (originalLogpath) {
+        output += 'Logpath: ' + originalLogpath + '\n\n';
+      }
+      
+      // Show files found
       if (files.length === 0) {
-        resultsDiv.textContent = 'No files found for logpath: ' + (data.logpath || 'N/A');
+        output += 'No files found matching the logpath pattern.';
         resultsDiv.classList.remove('text-red-600');
         resultsDiv.classList.add('text-yellow-600');
       } else {
-        resultsDiv.textContent = 'Found ' + files.length + ' file(s):\n' + files.join('\n');
+        output += 'Found ' + files.length + ' file(s):\n' + files.join('\n');
         resultsDiv.classList.remove('text-red-600', 'text-yellow-600');
       }
+      
+      resultsDiv.textContent = output;
+      
+      // Auto-scroll to results
+      setTimeout(function() {
+        resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
     })
     .catch(function(err) {
       showLoading(false);
       resultsDiv.textContent = 'Error: ' + err;
       resultsDiv.classList.add('text-red-600');
+      // Auto-scroll to results
+      setTimeout(function() {
+        resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
     });
 }
 

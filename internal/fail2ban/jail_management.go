@@ -623,6 +623,7 @@ func SetJailConfig(jailName, content string) error {
 
 // TestLogpath tests a logpath pattern and returns matching files.
 // Supports wildcards/glob patterns (e.g., /var/log/*.log) and directory paths.
+// This function tests the path as-is without variable resolution.
 func TestLogpath(logpath string) ([]string, error) {
 	if logpath == "" {
 		return []string{}, nil
@@ -672,6 +673,34 @@ func TestLogpath(logpath string) ([]string, error) {
 	}
 
 	return matches, nil
+}
+
+// TestLogpathWithResolution resolves variables in logpath and tests the resolved path.
+// Returns the original path, resolved path, matching files, and any error.
+func TestLogpathWithResolution(logpath string) (originalPath, resolvedPath string, files []string, err error) {
+	originalPath = strings.TrimSpace(logpath)
+	if originalPath == "" {
+		return originalPath, "", []string{}, nil
+	}
+
+	// Resolve variables
+	resolvedPath, err = ResolveLogpathVariables(originalPath)
+	if err != nil {
+		return originalPath, "", nil, fmt.Errorf("failed to resolve logpath variables: %w", err)
+	}
+
+	// If resolution didn't change the path, resolvedPath will be the same
+	if resolvedPath == "" {
+		resolvedPath = originalPath
+	}
+
+	// Test the resolved path
+	files, err = TestLogpath(resolvedPath)
+	if err != nil {
+		return originalPath, resolvedPath, nil, fmt.Errorf("failed to test logpath: %w", err)
+	}
+
+	return originalPath, resolvedPath, files, nil
 }
 
 // ExtractLogpathFromJailConfig extracts the logpath value from jail configuration content.
