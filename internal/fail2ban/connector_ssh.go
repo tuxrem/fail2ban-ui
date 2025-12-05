@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -856,7 +857,7 @@ PYEOF
 
 	resolveOut = strings.TrimSpace(resolveOut)
 	if strings.HasPrefix(resolveOut, "ERROR:") {
-		return originalPath, "", nil, fmt.Errorf(strings.TrimPrefix(resolveOut, "ERROR:"))
+		return originalPath, "", nil, errors.New(strings.TrimPrefix(resolveOut, "ERROR:"))
 	}
 	if strings.HasPrefix(resolveOut, "RESOLVED:") {
 		resolvedPath = strings.TrimPrefix(resolveOut, "RESOLVED:")

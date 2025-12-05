@@ -321,15 +321,53 @@ function saveManageJailsSingle(checkbox) {
       return res.json();
     })
     .then(function(data) {
+      // Check if there was an error (including auto-disabled jails)
       if (data.error) {
-        showToast("Error saving jail settings: " + data.error, 'error');
-        // Revert checkbox state on error
-        checkbox.checked = !isEnabled;
-        return;
+        var errorMsg = data.error;
+        var toastType = 'error';
+        
+        // If jails were auto-disabled, check if this jail was one of them
+        var wasAutoDisabled = data.autoDisabled && data.enabledJails && Array.isArray(data.enabledJails) && data.enabledJails.indexOf(jailName) !== -1;
+        
+        if (wasAutoDisabled) {
+          checkbox.checked = false;
+          toastType = 'warning';
+          // Use the message if available, otherwise use the error
+          errorMsg = data.message || errorMsg;
+        } else {
+          // Revert checkbox state on error
+          checkbox.checked = !isEnabled;
+        }
+        
+        showToast(errorMsg, toastType);
+        
+        // Still reload the jail list to reflect the actual state
+        return fetch(withServerParam('/api/jails/manage'), {
+          headers: serverHeaders()
+        }).then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (data.jails && data.jails.length) {
+            // Update the checkbox state based on server response
+            const jail = data.jails.find(function(j) { return j.jailName === jailName; });
+            if (jail) {
+              checkbox.checked = jail.enabled;
+            }
+          }
+          loadServers().then(function() {
+            updateRestartBanner();
+            return refreshData({ silent: true });
+          });
+        });
       }
+      
+      // Check for warning (legacy support)
+      if (data.warning) {
+        showToast(data.warning, 'warning');
+      }
+      
       console.log('Jail state saved successfully:', data);
       // Show success toast
-      showToast('Jail ' + jailName + ' ' + (isEnabled ? 'enabled' : 'disabled') + ' successfully', 'success');
+      showToast(data.message || ('Jail ' + jailName + ' ' + (isEnabled ? 'enabled' : 'disabled') + ' successfully'), 'success');
       // Reload the jail list to reflect the actual state
       return fetch(withServerParam('/api/jails/manage'), {
         headers: serverHeaders()

@@ -1012,6 +1012,16 @@ func AdvancedActionsTestHandler(c *gin.Context) {
 
 // UpdateJailManagementHandler updates the enabled state for each jail.
 // Expected JSON format: { "JailName1": true, "JailName2": false, ... }
+// getJailNames converts a map of jail names to a sorted slice of jail names
+func getJailNames(jails map[string]bool) []string {
+	names := make([]string, 0, len(jails))
+	for name := range jails {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // After updating, fail2ban is reloaded to apply the changes.
 func UpdateJailManagementHandler(c *gin.Context) {
 	config.DebugLog("----------------------------")
@@ -1034,6 +1044,15 @@ func UpdateJailManagementHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No jail updates provided"})
 		return
 	}
+
+	// Track which jails were enabled (for error recovery)
+	enabledJails := make(map[string]bool)
+	for jailName, enabled := range updates {
+		if enabled {
+			enabledJails[jailName] = true
+		}
+	}
+
 	// Update jail configuration file(s) with the new enabled states.
 	if err := conn.UpdateJailEnabledStates(c.Request.Context(), updates); err != nil {
 		config.DebugLog("Error updating jail enabled states: %v", err)
@@ -1041,13 +1060,66 @@ func UpdateJailManagementHandler(c *gin.Context) {
 		return
 	}
 	config.DebugLog("Successfully updated jail enabled states")
+
 	// Reload fail2ban to apply the changes (reload is sufficient for jail enable/disable)
 	if err := conn.Reload(c.Request.Context()); err != nil {
-		config.DebugLog("Warning: failed to reload fail2ban after updating jail settings: %v", err)
-		// Still return success but warn about reload failure
+		config.DebugLog("Error: failed to reload fail2ban after updating jail settings: %v", err)
+		errMsg := err.Error()
+
+		// If any jails were enabled in this request and reload failed, disable them all
+		if len(enabledJails) > 0 {
+			config.DebugLog("Reload failed after enabling %d jail(s), auto-disabling all enabled jails: %v", len(enabledJails), enabledJails)
+
+			// Disable all jails that were just enabled
+			disableUpdate := make(map[string]bool)
+			for jailName := range enabledJails {
+				disableUpdate[jailName] = false
+			}
+
+			if disableErr := conn.UpdateJailEnabledStates(c.Request.Context(), disableUpdate); disableErr != nil {
+				config.DebugLog("Error disabling jails after reload failure: %v", disableErr)
+				c.JSON(http.StatusOK, gin.H{
+					"error":        fmt.Sprintf("Failed to reload fail2ban: %s. Additionally, failed to auto-disable enabled jails: %v", errMsg, disableErr),
+					"autoDisabled": false,
+					"enabledJails": getJailNames(enabledJails),
+				})
+				return
+			}
+
+			// Reload again after disabling
+			if reloadErr := conn.Reload(c.Request.Context()); reloadErr != nil {
+				config.DebugLog("Error: failed to reload fail2ban after disabling jails: %v", reloadErr)
+				c.JSON(http.StatusOK, gin.H{
+					"error":        fmt.Sprintf("Failed to reload fail2ban after disabling jails: %v", reloadErr),
+					"autoDisabled": true,
+					"enabledJails": getJailNames(enabledJails),
+				})
+				return
+			}
+
+			config.DebugLog("Successfully disabled %d jail(s) and reloaded fail2ban", len(enabledJails))
+			jailNamesList := getJailNames(enabledJails)
+			if len(jailNamesList) == 1 {
+				c.JSON(http.StatusOK, gin.H{
+					"error":        fmt.Sprintf("Jail '%s' was enabled but caused a reload error: %s. It has been automatically disabled.", jailNamesList[0], errMsg),
+					"autoDisabled": true,
+					"enabledJails": jailNamesList,
+					"message":      fmt.Sprintf("Jail '%s' was automatically disabled due to configuration error", jailNamesList[0]),
+				})
+			} else {
+				c.JSON(http.StatusOK, gin.H{
+					"error":        fmt.Sprintf("Jails %v were enabled but caused a reload error: %s. They have been automatically disabled.", jailNamesList, errMsg),
+					"autoDisabled": true,
+					"enabledJails": jailNamesList,
+					"message":      fmt.Sprintf("%d jail(s) were automatically disabled due to configuration error", len(jailNamesList)),
+				})
+			}
+			return
+		}
+
+		// Error occurred but no jails were enabled (only disabled), so just report the error
 		c.JSON(http.StatusOK, gin.H{
-			"message": "Jail settings updated successfully, but fail2ban reload failed",
-			"warning": "Please reload fail2ban manually: " + err.Error(),
+			"error": fmt.Sprintf("Failed to reload fail2ban: %s", errMsg),
 		})
 		return
 	}
