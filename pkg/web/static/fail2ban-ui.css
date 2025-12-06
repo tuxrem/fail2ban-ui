@@ -152,6 +152,10 @@ mark {
     background-color: #1d4ed8;
 }
 
+.toast-warning {
+    background-color: #d97706;
+}
+
 #advancedMikrotikFields, #advancedPfSenseFields {
     padding: 10px;
 }

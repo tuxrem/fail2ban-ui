@@ -278,16 +278,129 @@ func (ac *AgentConnector) GetFilters(ctx context.Context) ([]string, error) {
 }
 
 // TestFilter implements Connector.
-func (ac *AgentConnector) TestFilter(ctx context.Context, filterName string, logLines []string) (string, error) {
+func (ac *AgentConnector) TestFilter(ctx context.Context, filterName string, logLines []string) (string, string, error) {
 	payload := map[string]any{
 		"filterName": filterName,
 		"logLines":   logLines,
 	}
 	var resp struct {
-		Output string `json:"output"`
+		Output     string `json:"output"`
+		FilterPath string `json:"filterPath"`
 	}
 	if err := ac.post(ctx, "/v1/filters/test", payload, &resp); err != nil {
+		return "", "", err
+	}
+	// If agent doesn't return filterPath, construct it (agent should handle .local priority)
+	filterPath := resp.FilterPath
+	if filterPath == "" {
+		// Default to .conf path (agent should handle .local priority on its side)
+		filterPath = fmt.Sprintf("/etc/fail2ban/filter.d/%s.conf", filterName)
+	}
+	return resp.Output, filterPath, nil
+}
+
+// GetJailConfig implements Connector.
+func (ac *AgentConnector) GetJailConfig(ctx context.Context, jail string) (string, error) {
+	var resp struct {
+		Config string `json:"config"`
+	}
+	if err := ac.get(ctx, fmt.Sprintf("/v1/jails/%s/config", url.PathEscape(jail)), &resp); err != nil {
 		return "", err
 	}
-	return resp.Output, nil
+	return resp.Config, nil
+}
+
+// SetJailConfig implements Connector.
+func (ac *AgentConnector) SetJailConfig(ctx context.Context, jail, content string) error {
+	payload := map[string]string{"config": content}
+	return ac.put(ctx, fmt.Sprintf("/v1/jails/%s/config", url.PathEscape(jail)), payload, nil)
+}
+
+// TestLogpath implements Connector.
+func (ac *AgentConnector) TestLogpath(ctx context.Context, logpath string) ([]string, error) {
+	payload := map[string]string{"logpath": logpath}
+	var resp struct {
+		Files []string `json:"files"`
+	}
+	if err := ac.post(ctx, "/v1/jails/test-logpath", payload, &resp); err != nil {
+		return []string{}, nil // Return empty on error
+	}
+	return resp.Files, nil
+}
+
+// TestLogpathWithResolution implements Connector.
+// Agent server should handle variable resolution.
+func (ac *AgentConnector) TestLogpathWithResolution(ctx context.Context, logpath string) (originalPath, resolvedPath string, files []string, err error) {
+	originalPath = strings.TrimSpace(logpath)
+	if originalPath == "" {
+		return originalPath, "", []string{}, nil
+	}
+
+	payload := map[string]string{"logpath": originalPath}
+	var resp struct {
+		OriginalLogpath string   `json:"original_logpath"`
+		ResolvedLogpath string   `json:"resolved_logpath"`
+		Files           []string `json:"files"`
+		Error           string   `json:"error,omitempty"`
+	}
+
+	// Try new endpoint first, fallback to old endpoint
+	if err := ac.post(ctx, "/v1/jails/test-logpath-with-resolution", payload, &resp); err != nil {
+		// Fallback: use old endpoint and assume no resolution
+		files, err2 := ac.TestLogpath(ctx, originalPath)
+		if err2 != nil {
+			return originalPath, "", nil, fmt.Errorf("failed to test logpath: %w", err2)
+		}
+		return originalPath, originalPath, files, nil
+	}
+
+	if resp.Error != "" {
+		return originalPath, "", nil, fmt.Errorf("agent error: %s", resp.Error)
+	}
+
+	if resp.ResolvedLogpath == "" {
+		resp.ResolvedLogpath = resp.OriginalLogpath
+	}
+	if resp.OriginalLogpath == "" {
+		resp.OriginalLogpath = originalPath
+	}
+
+	return resp.OriginalLogpath, resp.ResolvedLogpath, resp.Files, nil
+}
+
+// UpdateDefaultSettings implements Connector.
+func (ac *AgentConnector) UpdateDefaultSettings(ctx context.Context, settings config.AppSettings) error {
+	// Convert IgnoreIPs array to space-separated string
+	ignoreIPStr := strings.Join(settings.IgnoreIPs, " ")
+	if ignoreIPStr == "" {
+		ignoreIPStr = "127.0.0.1/8 ::1"
+	}
+	// Set default banaction values if not set
+	banaction := settings.Banaction
+	if banaction == "" {
+		banaction = "iptables-multiport"
+	}
+	banactionAllports := settings.BanactionAllports
+	if banactionAllports == "" {
+		banactionAllports = "iptables-allports"
+	}
+	payload := map[string]interface{}{
+		"bantimeIncrement":  settings.BantimeIncrement,
+		"ignoreip":          ignoreIPStr,
+		"bantime":           settings.Bantime,
+		"findtime":          settings.Findtime,
+		"maxretry":          settings.Maxretry,
+		"destemail":         settings.Destemail,
+		"banaction":         banaction,
+		"banactionAllports": banactionAllports,
+	}
+	return ac.put(ctx, "/v1/jails/default-settings", payload, nil)
+}
+
+// EnsureJailLocalStructure implements Connector.
+func (ac *AgentConnector) EnsureJailLocalStructure(ctx context.Context) error {
+	// Call agent API endpoint to ensure jail.local structure
+	// If the endpoint doesn't exist, we'll need to implement it on the agent side
+	// For now, we'll try calling it and handle the error gracefully
+	return ac.post(ctx, "/v1/jails/ensure-structure", nil, nil)
 }

@@ -28,7 +28,19 @@ type Connector interface {
 
 	// Filter operations
 	GetFilters(ctx context.Context) ([]string, error)
-	TestFilter(ctx context.Context, filterName string, logLines []string) (string, error)
+	TestFilter(ctx context.Context, filterName string, logLines []string) (output string, filterPath string, err error)
+
+	// Jail configuration operations
+	GetJailConfig(ctx context.Context, jail string) (string, error)
+	SetJailConfig(ctx context.Context, jail, content string) error
+	TestLogpath(ctx context.Context, logpath string) ([]string, error)
+	TestLogpathWithResolution(ctx context.Context, logpath string) (originalPath, resolvedPath string, files []string, err error)
+
+	// Default settings operations
+	UpdateDefaultSettings(ctx context.Context, settings config.AppSettings) error
+
+	// Jail local structure management
+	EnsureJailLocalStructure(ctx context.Context) error
 }
 
 // Manager orchestrates all connectors for configured Fail2ban servers.
@@ -157,6 +169,14 @@ func updateConnectorAction(ctx context.Context, conn Connector) error {
 func newConnectorForServer(server config.Fail2banServer) (Connector, error) {
 	switch server.Type {
 	case "local":
+		// IMPORTANT: Run migration FIRST before ensuring structure
+		// This ensures any legacy jails in jail.local are migrated to jail.d/*.local
+		// before ensureJailLocalStructure() overwrites jail.local
+		if err := MigrateJailsFromJailLocal(); err != nil {
+			config.DebugLog("Warning: migration check failed (may be normal if no jails to migrate): %v", err)
+			// Don't fail - continue with ensuring structure
+		}
+
 		if err := config.EnsureLocalFail2banAction(server); err != nil {
 			fmt.Printf("warning: failed to ensure local fail2ban action: %v\n", err)
 		}

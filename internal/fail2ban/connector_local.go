@@ -52,7 +52,7 @@ func (lc *LocalConnector) GetJailInfos(ctx context.Context) ([]JailInfo, error) 
 	}
 
 	oneHourAgo := time.Now().Add(-1 * time.Hour)
-	
+
 	// Use parallel execution for better performance
 	type jailResult struct {
 		jail JailInfo
@@ -142,8 +142,23 @@ func (lc *LocalConnector) UnbanIP(ctx context.Context, jail, ip string) error {
 
 // Reload implements Connector.
 func (lc *LocalConnector) Reload(ctx context.Context) error {
-	if _, err := lc.runFail2banClient(ctx, "reload"); err != nil {
-		return fmt.Errorf("fail2ban reload error: %w", err)
+	out, err := lc.runFail2banClient(ctx, "reload")
+	if err != nil {
+		// Include the output in the error message for better debugging
+		return fmt.Errorf("fail2ban reload error: %w (output: %s)", err, strings.TrimSpace(out))
+	}
+
+	// Check if output indicates success (fail2ban-client returns "OK" on success)
+	outputTrimmed := strings.TrimSpace(out)
+	if outputTrimmed != "OK" && outputTrimmed != "" {
+		config.DebugLog("fail2ban reload output: %s", out)
+
+		// Check for jail errors in output even when command succeeds
+		// Look for patterns like "Errors in jail 'jailname'. Skipping..."
+		if strings.Contains(out, "Errors in jail") || strings.Contains(out, "Unable to read the filter") {
+			// Return an error that includes the output so handler can parse it
+			return fmt.Errorf("fail2ban reload completed but with errors (output: %s)", strings.TrimSpace(out))
+		}
 	}
 	return nil
 }
@@ -248,8 +263,41 @@ func (lc *LocalConnector) GetFilters(ctx context.Context) ([]string, error) {
 }
 
 // TestFilter implements Connector.
-func (lc *LocalConnector) TestFilter(ctx context.Context, filterName string, logLines []string) (string, error) {
+func (lc *LocalConnector) TestFilter(ctx context.Context, filterName string, logLines []string) (string, string, error) {
 	return TestFilterLocal(filterName, logLines)
+}
+
+// GetJailConfig implements Connector.
+func (lc *LocalConnector) GetJailConfig(ctx context.Context, jail string) (string, error) {
+	return GetJailConfig(jail)
+}
+
+// SetJailConfig implements Connector.
+func (lc *LocalConnector) SetJailConfig(ctx context.Context, jail, content string) error {
+	return SetJailConfig(jail, content)
+}
+
+// TestLogpath implements Connector.
+func (lc *LocalConnector) TestLogpath(ctx context.Context, logpath string) ([]string, error) {
+	return TestLogpath(logpath)
+}
+
+// TestLogpathWithResolution implements Connector.
+func (lc *LocalConnector) TestLogpathWithResolution(ctx context.Context, logpath string) (originalPath, resolvedPath string, files []string, err error) {
+	return TestLogpathWithResolution(logpath)
+}
+
+// UpdateDefaultSettings implements Connector.
+func (lc *LocalConnector) UpdateDefaultSettings(ctx context.Context, settings config.AppSettings) error {
+	return UpdateDefaultSettingsLocal(settings)
+}
+
+// EnsureJailLocalStructure implements Connector.
+func (lc *LocalConnector) EnsureJailLocalStructure(ctx context.Context) error {
+	// Note: Migration is handled in newConnectorForServer() before
+	// config.EnsureLocalFail2banAction() is called, so migration has already
+	// run by the time this method is called.
+	return config.EnsureJailLocalStructure()
 }
 
 func executeShellCommand(ctx context.Context, command string) (string, error) {
