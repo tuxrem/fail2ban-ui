@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -55,12 +56,14 @@ type AppSettings struct {
 	AlertCountries  []string              `json:"alertCountries"`
 	SMTP            SMTPSettings          `json:"smtp"`
 	CallbackURL     string                `json:"callbackUrl"`
+	CallbackSecret  string                `json:"callbackSecret"`
 	AdvancedActions AdvancedActionsConfig `json:"advancedActions"`
 
 	Servers []Fail2banServer `json:"servers"`
 
 	// Fail2Ban [DEFAULT] section values from jail.local
 	BantimeIncrement  bool     `json:"bantimeIncrement"`
+	DefaultJailEnable bool     `json:"defaultJailEnable"`
 	IgnoreIPs         []string `json:"ignoreips"` // Changed from string to []string for individual IP management
 	Bantime           string   `json:"bantime"`
 	Findtime          string   `json:"findtime"`
@@ -69,6 +72,11 @@ type AppSettings struct {
 	Banaction         string   `json:"banaction"`         // Default banning action
 	BanactionAllports string   `json:"banactionAllports"` // Allports banning action
 	//Sender           string `json:"sender"`
+
+	// GeoIP and Whois settings
+	GeoIPProvider     string `json:"geoipProvider"`     // "maxmind" or "builtin"
+	GeoIPDatabasePath string `json:"geoipDatabasePath"` // Path to MaxMind database (optional)
+	MaxLogLines       int    `json:"maxLogLines"`       // Maximum log lines to include (default: 50)
 }
 
 type AdvancedActionsConfig struct {
@@ -130,6 +138,7 @@ const (
 	actionFile                = "/etc/fail2ban/action.d/ui-custom-action.conf"
 	actionCallbackPlaceholder = "__CALLBACK_URL__"
 	actionServerIDPlaceholder = "__SERVER_ID__"
+	actionSecretPlaceholder   = "__CALLBACK_SECRET__"
 )
 
 // jailLocalBanner is the standard banner for jail.local files
@@ -166,14 +175,14 @@ norestored = 1
 
 actionban = /usr/bin/curl -X POST __CALLBACK_URL__/api/ban \
      -H "Content-Type: application/json" \
+     -H "X-Callback-Secret: __CALLBACK_SECRET__" \
      -d "$(jq -n --arg serverId '__SERVER_ID__' \
                  --arg ip '<ip>' \
                  --arg jail '<name>' \
                  --arg hostname '<fq-hostname>' \
                  --arg failures '<failures>' \
-                 --arg whois "$(whois <ip> || echo 'missing whois program')" \
                  --arg logs "$(tac <logpath> | grep <grepopts> -wF <ip>)" \
-                 '{serverId: $serverId, ip: $ip, jail: $jail, hostname: $hostname, failures: $failures, whois: $whois, logs: $logs}')"
+                 '{serverId: $serverId, ip: $ip, jail: $jail, hostname: $hostname, failures: $failures, logs: $logs}')"
 
 [Init]
 
@@ -351,6 +360,7 @@ func applyAppSettingsRecordLocked(rec storage.AppSettingsRecord) {
 	currentSettings.CallbackURL = rec.CallbackURL
 	currentSettings.RestartNeeded = rec.RestartNeeded
 	currentSettings.BantimeIncrement = rec.BantimeIncrement
+	currentSettings.DefaultJailEnable = rec.DefaultJailEnable
 	// Convert IgnoreIP string to array (backward compatibility)
 	if rec.IgnoreIP != "" {
 		currentSettings.IgnoreIPs = strings.Fields(rec.IgnoreIP)
@@ -382,6 +392,10 @@ func applyAppSettingsRecordLocked(rec storage.AppSettingsRecord) {
 			currentSettings.AdvancedActions = adv
 		}
 	}
+	currentSettings.GeoIPProvider = rec.GeoIPProvider
+	currentSettings.GeoIPDatabasePath = rec.GeoIPDatabasePath
+	currentSettings.MaxLogLines = rec.MaxLogLines
+	currentSettings.CallbackSecret = rec.CallbackSecret
 }
 
 func applyServerRecordsLocked(records []storage.ServerRecord) {
@@ -446,6 +460,7 @@ func toAppSettingsRecordLocked() (storage.AppSettingsRecord, error) {
 		SMTPFrom:           currentSettings.SMTP.From,
 		SMTPUseTLS:         currentSettings.SMTP.UseTLS,
 		BantimeIncrement:   currentSettings.BantimeIncrement,
+		DefaultJailEnable:  currentSettings.DefaultJailEnable,
 		// Convert IgnoreIPs array to space-separated string for storage
 		IgnoreIP:            strings.Join(currentSettings.IgnoreIPs, " "),
 		Bantime:             currentSettings.Bantime,
@@ -455,6 +470,10 @@ func toAppSettingsRecordLocked() (storage.AppSettingsRecord, error) {
 		Banaction:           currentSettings.Banaction,
 		BanactionAllports:   currentSettings.BanactionAllports,
 		AdvancedActionsJSON: string(advancedBytes),
+		GeoIPProvider:       currentSettings.GeoIPProvider,
+		GeoIPDatabasePath:   currentSettings.GeoIPDatabasePath,
+		MaxLogLines:         currentSettings.MaxLogLines,
+		CallbackSecret:      currentSettings.CallbackSecret,
 	}, nil
 }
 
@@ -532,6 +551,10 @@ func setDefaultsLocked() {
 			currentSettings.CallbackURL = fmt.Sprintf("http://127.0.0.1:%d", currentSettings.Port)
 		}
 	}
+	// Generate callback secret if not set (only generate once, never regenerate)
+	if currentSettings.CallbackSecret == "" {
+		currentSettings.CallbackSecret = generateCallbackSecret()
+	}
 	if currentSettings.AlertCountries == nil {
 		currentSettings.AlertCountries = []string{"ALL"}
 	}
@@ -573,6 +596,15 @@ func setDefaultsLocked() {
 	}
 	if currentSettings.BanactionAllports == "" {
 		currentSettings.BanactionAllports = "iptables-allports"
+	}
+	if currentSettings.GeoIPProvider == "" {
+		currentSettings.GeoIPProvider = "builtin"
+	}
+	if currentSettings.GeoIPDatabasePath == "" {
+		currentSettings.GeoIPDatabasePath = "/usr/share/GeoIP/GeoLite2-Country.mmdb"
+	}
+	if currentSettings.MaxLogLines == 0 {
+		currentSettings.MaxLogLines = 50
 	}
 
 	if (currentSettings.AdvancedActions == AdvancedActionsConfig{}) {
@@ -648,7 +680,7 @@ func normalizeServersLocked() {
 		hostname, _ := os.Hostname()
 		currentSettings.Servers = []Fail2banServer{{
 			ID:         "local",
-			Name:       "Local Fail2ban",
+			Name:       "Fail2ban",
 			Type:       "local",
 			SocketPath: "/var/run/fail2ban/fail2ban.sock",
 			LogPath:    "/var/log/fail2ban.log",
@@ -808,6 +840,7 @@ func ensureJailLocalStructure() error {
 		banactionAllports = "iptables-allports"
 	}
 	defaultSection := fmt.Sprintf(`[DEFAULT]
+enabled = %t
 bantime.increment = %t
 ignoreip = %s
 bantime = %s
@@ -817,7 +850,7 @@ destemail = %s
 banaction = %s
 banaction_allports = %s
 
-`, settings.BantimeIncrement, ignoreIPStr, settings.Bantime, settings.Findtime, settings.Maxretry, settings.Destemail, banaction, banactionAllports)
+`, settings.DefaultJailEnable, settings.BantimeIncrement, ignoreIPStr, settings.Bantime, settings.Findtime, settings.Maxretry, settings.Destemail, banaction, banactionAllports)
 
 	// Build action_mwlg configuration
 	// Note: action_mwlg depends on action_ which depends on banaction (now defined above)
@@ -876,6 +909,7 @@ func updateJailLocalDefaultSection(settings AppSettings) error {
 	}
 	// Keys to update
 	keysToUpdate := map[string]string{
+		"enabled":            fmt.Sprintf("enabled = %t", settings.DefaultJailEnable),
 		"bantime.increment":  fmt.Sprintf("bantime.increment = %t", settings.BantimeIncrement),
 		"ignoreip":           fmt.Sprintf("ignoreip = %s", ignoreIPStr),
 		"bantime":            fmt.Sprintf("bantime = %s", settings.Bantime),
@@ -973,7 +1007,8 @@ func writeFail2banAction(callbackURL, serverID string) error {
 		return fmt.Errorf("fail2ban is not installed: /etc/fail2ban/action.d directory does not exist. Please install fail2ban package first")
 	}
 
-	actionConfig := BuildFail2banActionConfig(callbackURL, serverID)
+	settings := GetSettings()
+	actionConfig := BuildFail2banActionConfig(callbackURL, serverID, settings.CallbackSecret)
 	err := os.WriteFile(actionFile, []byte(actionConfig), 0644)
 	if err != nil {
 		return fmt.Errorf("failed to write action file: %w", err)
@@ -992,7 +1027,7 @@ func cloneServer(src Fail2banServer) Fail2banServer {
 	return dst
 }
 
-func BuildFail2banActionConfig(callbackURL, serverID string) string {
+func BuildFail2banActionConfig(callbackURL, serverID, secret string) string {
 	trimmed := strings.TrimRight(strings.TrimSpace(callbackURL), "/")
 	if trimmed == "" {
 		trimmed = "http://127.0.0.1:8080"
@@ -1000,8 +1035,43 @@ func BuildFail2banActionConfig(callbackURL, serverID string) string {
 	if serverID == "" {
 		serverID = "local"
 	}
+	if secret == "" {
+		// If secret is empty, get it from settings (should be generated by setDefaultsLocked)
+		settings := GetSettings()
+		secret = settings.CallbackSecret
+		// Last resort: if still empty, generate one (shouldn't happen)
+		if secret == "" {
+			secret = generateCallbackSecret()
+		}
+	}
 	config := strings.ReplaceAll(fail2banActionTemplate, actionCallbackPlaceholder, trimmed)
-	return strings.ReplaceAll(config, actionServerIDPlaceholder, serverID)
+	config = strings.ReplaceAll(config, actionServerIDPlaceholder, serverID)
+	config = strings.ReplaceAll(config, actionSecretPlaceholder, secret)
+	return config
+}
+
+// generateCallbackSecret generates a 42-character random secret using crypto/rand.
+func generateCallbackSecret() string {
+	// Generate 32 random bytes (256 bits of entropy)
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to hex encoding if crypto/rand fails (shouldn't happen)
+		fallbackBytes := make([]byte, 21) // 21 bytes = 42 hex chars
+		if _, err := rand.Read(fallbackBytes); err != nil {
+			// Last resort: use time-based seed (not ideal but better than nothing)
+			return fmt.Sprintf("%042x", time.Now().UnixNano())
+		}
+		return hex.EncodeToString(fallbackBytes)
+	}
+	// Use base64 URL-safe encoding, which gives us 43 chars for 32 bytes
+	// We need exactly 42, so we'll truncate the last character (which is padding anyway)
+	encoded := base64.URLEncoding.EncodeToString(bytes)
+	// Base64 URL encoding of 32 bytes = 43 chars, take first 42
+	if len(encoded) >= 42 {
+		return encoded[:42]
+	}
+	// If somehow shorter, pad with random hex
+	return encoded + hex.EncodeToString(bytes)[:42-len(encoded)]
 }
 
 func getCallbackURLLocked() string {
@@ -1347,6 +1417,7 @@ func UpdateSettings(new AppSettings) (AppSettings, error) {
 		}
 	}
 	restartTriggered := old.BantimeIncrement != new.BantimeIncrement ||
+		old.DefaultJailEnable != new.DefaultJailEnable ||
 		ignoreIPsChanged ||
 		old.Bantime != new.Bantime ||
 		old.Findtime != new.Findtime ||

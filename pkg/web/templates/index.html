@@ -75,12 +75,19 @@
           <div class="flex-shrink-0">
             <span class="text-xl font-bold">Fail2ban UI</span>
           </div>
+          <div id="backendStatus" class="ml-4 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-gray-400" id="statusDot"></span>
+            <span id="statusText" class="text-xs">Connecting...</span>
+          </div>
         </div>
         <div class="hidden md:block">
-          <div class="ml-10 flex items-baseline space-x-4">
+          <div class="ml-10 flex items-baseline space-x-4 items-center">
             <a href="#" onclick="showSection('dashboardSection')" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors" data-i18n="nav.dashboard">Dashboard</a>
             <a href="#" onclick="showSection('filterSection')" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors" data-i18n="nav.filter_debug">Filter Debug</a>
             <a href="#" onclick="showSection('settingsSection')" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors" data-i18n="nav.settings">Settings</a>
+            <div id="clockDisplay" class="ml-4 text-sm font-mono">
+              <span id="clockTime">--:--:--</span>
+            </div>
           </div>
         </div>
         <div class="md:hidden">
@@ -213,6 +220,16 @@
             <p class="text-xs text-gray-500 mt-1" data-i18n="settings.callback_url_hint">This URL is used by all Fail2Ban instances to send ban alerts back to Fail2Ban UI. For local deployments, use the same port as Fail2Ban UI (e.g., http://127.0.0.1:8080). For reverse proxy setups, use your TLS-encrypted endpoint (e.g., https://fail2ban.example.com).</p>
           </div>
 
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <label for="callbackSecret" class="block text-sm font-medium text-gray-700" data-i18n="settings.callback_secret">Fail2ban Callback URL Secret</label>
+              <a href="#" id="toggleCallbackSecretLink" class="text-sm text-blue-600 hover:text-blue-800 underline" onclick="toggleCallbackSecretVisibility(); return false;">show secret</a>
+            </div>
+            <input type="password" class="w-full border border-gray-300 rounded-md px-3 py-2 bg-gray-100 cursor-not-allowed" id="callbackSecret" readonly
+                   data-i18n-placeholder="settings.callback_secret_placeholder" placeholder="Auto-generated 42-character secret" />
+            <p class="text-xs text-gray-500 mt-1" data-i18n="settings.callback_secret.description">This secret is automatically generated and used to authenticate ban notification requests. It is included in the fail2ban action configuration.</p>
+          </div>
+
           <!-- Debug Log Output -->
           <div class="flex items-center border border-gray-200 rounded-lg p-2 overflow-x-auto bg-gray-50">
             <input type="checkbox" id="debugMode" class="h-4 w-7 text-blue-600 transition duration-150 ease-in-out">
@@ -323,12 +340,38 @@
         <!-- Alert Settings Group -->
         <div class="bg-white rounded-lg shadow p-6">
           <h3 class="text-lg font-medium text-gray-900 mb-4" data-i18n="settings.alert">Alert Settings</h3>
+
           <div class="mb-4">
             <label for="destEmail" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="settings.destination_email">Destination Email (Alerts Receiver)</label>
             <input type="email" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" id="destEmail"
                    data-i18n-placeholder="settings.destination_email_placeholder" placeholder="alerts@swissmakers.ch" />
             <p class="text-xs text-red-600 mt-1 hidden" id="destEmailError"></p>
           </div>
+
+          <!-- GeoIP Provider -->
+          <div class="mb-4">
+            <label for="geoipProvider" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="settings.geoip_provider">GeoIP Provider</label>
+            <select id="geoipProvider" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="onGeoIPProviderChange(this.value)">
+              <option value="builtin" data-i18n="settings.geoip_provider.builtin">Built-in (ip-api.com)</option>
+              <option value="maxmind" data-i18n="settings.geoip_provider.maxmind">MaxMind (Local Database)</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1" data-i18n="settings.geoip_provider.description">Choose the GeoIP lookup provider. MaxMind requires a local database file, while Built-in uses a free online API.</p>
+          </div>
+
+          <!-- GeoIP Database Path (shown only for MaxMind) -->
+          <div id="geoipDatabasePathContainer" class="mb-4">
+            <label for="geoipDatabasePath" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="settings.geoip_database_path">GeoIP Database Path</label>
+            <input type="text" id="geoipDatabasePath" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="/usr/share/GeoIP/GeoLite2-Country.mmdb">
+            <p class="text-xs text-gray-500 mt-1" data-i18n="settings.geoip_database_path.description">Path to the MaxMind GeoLite2-Country database file.</p>
+          </div>
+
+          <!-- Max Log Lines -->
+          <div class="mb-4">
+            <label for="maxLogLines" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="settings.max_log_lines">Maximum Log Lines</label>
+            <input type="number" id="maxLogLines" min="1" max="500" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="50">
+            <p class="text-xs text-gray-500 mt-1" data-i18n="settings.max_log_lines.description">Maximum number of log lines to include in ban notifications. Most relevant lines are selected automatically.</p>
+          </div>
+          
           <div class="mb-4">
             <label for="alertCountries" class="block text-sm font-medium text-gray-700 mb-2" data-i18n="settings.alert_countries">Alert Countries</label>
             <p class="text-sm text-gray-500 mb-2" data-i18n="settings.alert_countries_description">
@@ -584,6 +627,15 @@
               <label for="bantimeIncrement" class="ml-2 block text-sm font-medium text-gray-700" data-i18n="settings.enable_bantime_increment">Enable Bantime Increment</label>
             </div>
             <p class="text-xs text-gray-500 ml-9" data-i18n="settings.enable_bantime_increment.description">If set to true, the bantime will be calculated using the formula: bantime = findtime * (number of failures / maxretry) * (1 + bantime.rndtime).</p>
+          </div>
+
+          <!-- Default Enabled -->
+          <div class="mb-4">
+            <div class="flex items-center mb-2">
+              <input type="checkbox" id="defaultJailEnable" class="h-4 w-7 text-blue-600 transition duration-150 ease-in-out" />
+              <label for="defaultJailEnable" class="ml-2 block text-sm font-medium text-gray-700" data-i18n="settings.default_jail_enable">Enable Jails by Default</label>
+            </div>
+            <p class="text-xs text-gray-500 ml-9" data-i18n="settings.default_jail_enable.description">If enabled, all jails will be enabled by default. When disabled, jails must be explicitly enabled.</p>
           </div>
           
           <!-- Bantime -->
@@ -1154,6 +1206,8 @@
   <script src="/static/js/jails.js"></script>
   <script src="/static/js/settings.js"></script>
   <script src="/static/js/filters.js"></script>
+  <script src="/static/js/websocket.js"></script>
+  <script src="/static/js/header.js"></script>
   <script src="/static/js/lotr.js"></script>
   <script src="/static/js/init.js"></script>
 </body>

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   fail2ban-ui:
     # Use pre-built image from registry
@@ -11,31 +9,26 @@ services:
     #   dockerfile: Dockerfile
 
     container_name: fail2ban-ui
+    #privileged: true # needed if you want to use a container-local fail2ban instance (because fail2ban.sock is owned by root)
+    # a single all-in-one container is planned, currently you need to use the fail2ban container from linuxserver, see docker-compose-allinone.yml for an example
     network_mode: host
-    restart: unless-stopped
 
     environment:
-      # Custom port (optional, defaults to 8080)
-      # Change this to use a different port for the web interface
+      # Change this to use a different port for the web interface (defaults is 8080)
       - PORT=8080
 
     volumes:
-      # Required: Configuration and database storage
-      # Stores SQLite database, application settings, and SSH keys
+      # Required for fail2ban-ui: Stores SQLite database, application settings, and SSH keys of the fail2ban-ui container
       - /opt/podman-fail2ban-ui:/config:Z
-
-      # Required: Fail2Ban configuration directory
-      # Needed for managing local Fail2Ban instance
-      - /etc/fail2ban:/etc/fail2ban:Z
-
-      # Required: Fail2Ban socket directory
-      # Needed for local Fail2Ban control socket access
-      - /var/run/fail2ban:/var/run/fail2ban
-
-      # Optional: System logs (read-only)
-      # Useful for filter testing and log analysis (or if planned to integrate fal2ban directly in this container)
+      # Required for fail2ban-ui: Used for testing, that logpath is working, before enabeling a jail. Without this read only access the fail2ban-ui will not be able to enable jails (logpath-test would fail)
       - /var/log:/var/log:ro
 
-      # Optional: GeoIP databases (read-only)
-      # Enables geographic IP analysis features (GeoIP must be installed and configured on the host)
+      # Required for local fail2ban instance: Fail2Ban configuration directory, needed for managing a local Fail2Ban instance (e.g. on host system) via fail2ban-ui
+      - /etc/fail2ban:/etc/fail2ban:Z
+      # Required for local fail2ban instance: Fail2Ban socket directory, needed for local Fail2Ban (e.g. on host system) for control via fail2ban-ui
+      - /var/run/fail2ban:/var/run/fail2ban
+
+      # Optional: Enables geographic IP analysis features via GeoIP databases (GeoIP must be installed and configured on the host system)
       - /usr/share/GeoIP:/usr/share/GeoIP:ro
+
+    restart: unless-stopped

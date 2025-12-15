@@ -73,8 +73,12 @@ func main() {
 		router.Static("/static", "./pkg/web/static")
 	}
 
+	// Initialize WebSocket hub
+	wsHub := web.NewHub()
+	go wsHub.Run()
+
 	// Register all application routes, including the static files and templates.
-	web.RegisterRoutes(router)
+	web.RegisterRoutes(router, wsHub)
 
 	// Check if LOTR mode is active
 	isLOTRMode := isLOTRModeActive(settings.AlertCountries)
@@ -93,7 +97,6 @@ func main() {
 	}
 }
 
-// isLOTRModeActive checks if LOTR mode is enabled in alert countries
 func isLOTRModeActive(alertCountries []string) bool {
 	if len(alertCountries) == 0 {
 		return false
@@ -106,10 +109,10 @@ func isLOTRModeActive(alertCountries []string) bool {
 	return false
 }
 
-// printWelcomeBanner prints a cool Tux banner with startup info.
+// printWelcomeBanner prints the Tux banner with startup info.
 func printWelcomeBanner(appPort string, isLOTRMode bool) {
 	greeting := getGreeting()
-	
+
 	if isLOTRMode {
 		const lotrBanner = `
       .--.

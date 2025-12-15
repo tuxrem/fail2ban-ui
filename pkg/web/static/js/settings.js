@@ -1,6 +1,18 @@
 // Settings page functions for Fail2ban UI
 "use strict";
 
+// Handle GeoIP provider change
+function onGeoIPProviderChange(provider) {
+  const dbPathContainer = document.getElementById('geoipDatabasePathContainer');
+  if (dbPathContainer) {
+    if (provider === 'maxmind') {
+      dbPathContainer.style.display = 'block';
+    } else {
+      dbPathContainer.style.display = 'none';
+    }
+  }
+}
+
 function loadSettings() {
   showLoading(true);
   fetch('/api/settings')
@@ -36,6 +48,19 @@ function loadSettings() {
       // Set callback URL and add auto-update listener for port changes
       const callbackURLInput = document.getElementById('callbackURL');
       callbackURLInput.value = data.callbackUrl || '';
+      const callbackSecretInput = document.getElementById('callbackSecret');
+      const toggleLink = document.getElementById('toggleCallbackSecretLink');
+      if (callbackSecretInput) {
+        callbackSecretInput.value = data.callbackSecret || '';
+        // Reset to password type when loading
+        if (callbackSecretInput.type === 'text') {
+          callbackSecretInput.type = 'password';
+        }
+        // Update link text
+        if (toggleLink) {
+          toggleLink.textContent = 'show secret';
+        }
+      }
       
       // Auto-update callback URL when port changes (if using default localhost pattern)
       function updateCallbackURLIfDefault() {
@@ -82,6 +107,14 @@ function loadSettings() {
       }
 
       document.getElementById('bantimeIncrement').checked = data.bantimeIncrement || false;
+      document.getElementById('defaultJailEnable').checked = data.defaultJailEnable || false;
+      
+      // GeoIP settings
+      const geoipProvider = data.geoipProvider || 'builtin';
+      document.getElementById('geoipProvider').value = geoipProvider;
+      onGeoIPProviderChange(geoipProvider);
+      document.getElementById('geoipDatabasePath').value = data.geoipDatabasePath || '/usr/share/GeoIP/GeoLite2-Country.mmdb';
+      document.getElementById('maxLogLines').value = data.maxLogLines || 50;
       document.getElementById('banTime').value = data.bantime || '';
       document.getElementById('findTime').value = data.findtime || '';
       document.getElementById('maxRetry').value = data.maxretry || '';
@@ -139,14 +172,19 @@ function saveSettings(event) {
     debug: document.getElementById('debugMode').checked,
     destemail: document.getElementById('destEmail').value.trim(),
     callbackUrl: callbackUrl,
+    callbackSecret: document.getElementById('callbackSecret').value.trim(),
     alertCountries: selectedCountries.length > 0 ? selectedCountries : ["ALL"],
     bantimeIncrement: document.getElementById('bantimeIncrement').checked,
+    defaultJailEnable: document.getElementById('defaultJailEnable').checked,
     bantime: document.getElementById('banTime').value.trim(),
     findtime: document.getElementById('findTime').value.trim(),
     maxretry: parseInt(document.getElementById('maxRetry').value, 10) || 3,
     ignoreips: getIgnoreIPsArray(),
     banaction: document.getElementById('banaction').value,
     banactionAllports: document.getElementById('banactionAllports').value,
+    geoipProvider: document.getElementById('geoipProvider').value || 'builtin',
+    geoipDatabasePath: document.getElementById('geoipDatabasePath').value || '/usr/share/GeoIP/GeoLite2-Country.mmdb',
+    maxLogLines: parseInt(document.getElementById('maxLogLines').value, 10) || 50,
     smtp: smtpSettings,
     advancedActions: collectAdvancedActionsSettings()
   };
@@ -402,5 +440,17 @@ function advancedUnblockIP(ip, event) {
 const advancedIntegrationSelect = document.getElementById('advancedIntegrationSelect');
 if (advancedIntegrationSelect) {
   advancedIntegrationSelect.addEventListener('change', updateAdvancedIntegrationFields);
+}
+
+// Toggle callback secret visibility
+function toggleCallbackSecretVisibility() {
+  const input = document.getElementById('callbackSecret');
+  const link = document.getElementById('toggleCallbackSecretLink');
+  
+  if (!input || !link) return;
+  
+  const isPassword = input.type === 'password';
+  input.type = isPassword ? 'text' : 'password';
+  link.textContent = isPassword ? 'hide secret' : 'show secret';
 }
 
