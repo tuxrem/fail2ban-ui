@@ -1333,6 +1333,7 @@ func UpdateSettingsHandler(c *gin.Context) {
 	// Compare IgnoreIPs arrays
 	ignoreIPsChanged := !equalStringSlices(oldSettings.IgnoreIPs, newSettings.IgnoreIPs)
 	defaultSettingsChanged := oldSettings.BantimeIncrement != newSettings.BantimeIncrement ||
+		oldSettings.DefaultJailEnable != newSettings.DefaultJailEnable ||
 		ignoreIPsChanged ||
 		oldSettings.Bantime != newSettings.Bantime ||
 		oldSettings.Findtime != newSettings.Findtime ||
@@ -1459,6 +1460,7 @@ func ApplyFail2banSettings(jailLocalPath string) error {
 
 	newLines := []string{
 		"[DEFAULT]",
+		fmt.Sprintf("enabled = %t", s.DefaultJailEnable),
 		fmt.Sprintf("bantime.increment = %t", s.BantimeIncrement),
 		fmt.Sprintf("ignoreip = %s", strings.Join(s.IgnoreIPs, " ")),
 		fmt.Sprintf("bantime = %s", s.Bantime),

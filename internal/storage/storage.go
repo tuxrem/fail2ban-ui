@@ -61,6 +61,7 @@ type AppSettingsRecord struct {
 	SMTPFrom            string
 	SMTPUseTLS          bool
 	BantimeIncrement    bool
+	DefaultJailEnable   bool
 	IgnoreIP            string // Stored as space-separated string, converted to array in AppSettings
 	Bantime             string
 	Findtime            string
@@ -170,17 +171,17 @@ func GetAppSettings(ctx context.Context) (AppSettingsRecord, bool, error) {
 	}
 
 	row := db.QueryRowContext(ctx, `
-SELECT language, port, debug, callback_url, restart_needed, alert_countries, smtp_host, smtp_port, smtp_username, smtp_password, smtp_from, smtp_use_tls, bantime_increment, ignore_ip, bantime, findtime, maxretry, destemail, banaction, banaction_allports, advanced_actions
+SELECT language, port, debug, callback_url, restart_needed, alert_countries, smtp_host, smtp_port, smtp_username, smtp_password, smtp_from, smtp_use_tls, bantime_increment, default_jail_enable, ignore_ip, bantime, findtime, maxretry, destemail, banaction, banaction_allports, advanced_actions
 FROM app_settings
 WHERE id = 1`)
 
 	var (
 		lang, callback, alerts, smtpHost, smtpUser, smtpPass, smtpFrom, ignoreIP, bantime, findtime, destemail, banaction, banactionAllports, advancedActions sql.NullString
-		port, smtpPort, maxretry                                                                                                                                sql.NullInt64
-		debug, restartNeeded, smtpTLS, bantimeInc                                                                                                               sql.NullInt64
+		port, smtpPort, maxretry                                                                                                                              sql.NullInt64
+		debug, restartNeeded, smtpTLS, bantimeInc, defaultJailEn                                                                                              sql.NullInt64
 	)
 
-	err := row.Scan(&lang, &port, &debug, &callback, &restartNeeded, &alerts, &smtpHost, &smtpPort, &smtpUser, &smtpPass, &smtpFrom, &smtpTLS, &bantimeInc, &ignoreIP, &bantime, &findtime, &maxretry, &destemail, &banaction, &banactionAllports, &advancedActions)
+	err := row.Scan(&lang, &port, &debug, &callback, &restartNeeded, &alerts, &smtpHost, &smtpPort, &smtpUser, &smtpPass, &smtpFrom, &smtpTLS, &bantimeInc, &defaultJailEn, &ignoreIP, &bantime, &findtime, &maxretry, &destemail, &banaction, &banactionAllports, &advancedActions)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AppSettingsRecord{}, false, nil
 	}
@@ -202,6 +203,7 @@ WHERE id = 1`)
 		SMTPFrom:            stringFromNull(smtpFrom),
 		SMTPUseTLS:          intToBool(intFromNull(smtpTLS)),
 		BantimeIncrement:    intToBool(intFromNull(bantimeInc)),
+		DefaultJailEnable:   intToBool(intFromNull(defaultJailEn)),
 		IgnoreIP:            stringFromNull(ignoreIP),
 		Bantime:             stringFromNull(bantime),
 		Findtime:            stringFromNull(findtime),
@@ -221,9 +223,9 @@ func SaveAppSettings(ctx context.Context, rec AppSettingsRecord) error {
 	}
 	_, err := db.ExecContext(ctx, `
 INSERT INTO app_settings (
-	id, language, port, debug, callback_url, restart_needed, alert_countries, smtp_host, smtp_port, smtp_username, smtp_password, smtp_from, smtp_use_tls, bantime_increment, ignore_ip, bantime, findtime, maxretry, destemail, banaction, banaction_allports, advanced_actions
+	id, language, port, debug, callback_url, restart_needed, alert_countries, smtp_host, smtp_port, smtp_username, smtp_password, smtp_from, smtp_use_tls, bantime_increment, default_jail_enable, ignore_ip, bantime, findtime, maxretry, destemail, banaction, banaction_allports, advanced_actions
 ) VALUES (
-	1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+	1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 ) ON CONFLICT(id) DO UPDATE SET
 	language = excluded.language,
 	port = excluded.port,
@@ -238,6 +240,7 @@ INSERT INTO app_settings (
 	smtp_from = excluded.smtp_from,
 	smtp_use_tls = excluded.smtp_use_tls,
 	bantime_increment = excluded.bantime_increment,
+	default_jail_enable = excluded.default_jail_enable,
 	ignore_ip = excluded.ignore_ip,
 	bantime = excluded.bantime,
 	findtime = excluded.findtime,
@@ -259,6 +262,7 @@ INSERT INTO app_settings (
 		rec.SMTPFrom,
 		boolToInt(rec.SMTPUseTLS),
 		boolToInt(rec.BantimeIncrement),
+		boolToInt(rec.DefaultJailEnable),
 		rec.IgnoreIP,
 		rec.Bantime,
 		rec.Findtime,
@@ -775,6 +779,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 	smtp_from TEXT,
 	smtp_use_tls INTEGER,
 	bantime_increment INTEGER,
+	default_jail_enable INTEGER,
 	ignore_ip TEXT,
 	bantime TEXT,
 	findtime TEXT,

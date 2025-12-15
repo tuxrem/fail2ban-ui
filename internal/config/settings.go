@@ -61,6 +61,7 @@ type AppSettings struct {
 
 	// Fail2Ban [DEFAULT] section values from jail.local
 	BantimeIncrement  bool     `json:"bantimeIncrement"`
+	DefaultJailEnable bool     `json:"defaultJailEnable"`
 	IgnoreIPs         []string `json:"ignoreips"` // Changed from string to []string for individual IP management
 	Bantime           string   `json:"bantime"`
 	Findtime          string   `json:"findtime"`
@@ -351,6 +352,7 @@ func applyAppSettingsRecordLocked(rec storage.AppSettingsRecord) {
 	currentSettings.CallbackURL = rec.CallbackURL
 	currentSettings.RestartNeeded = rec.RestartNeeded
 	currentSettings.BantimeIncrement = rec.BantimeIncrement
+	currentSettings.DefaultJailEnable = rec.DefaultJailEnable
 	// Convert IgnoreIP string to array (backward compatibility)
 	if rec.IgnoreIP != "" {
 		currentSettings.IgnoreIPs = strings.Fields(rec.IgnoreIP)
@@ -446,6 +448,7 @@ func toAppSettingsRecordLocked() (storage.AppSettingsRecord, error) {
 		SMTPFrom:           currentSettings.SMTP.From,
 		SMTPUseTLS:         currentSettings.SMTP.UseTLS,
 		BantimeIncrement:   currentSettings.BantimeIncrement,
+		DefaultJailEnable:  currentSettings.DefaultJailEnable,
 		// Convert IgnoreIPs array to space-separated string for storage
 		IgnoreIP:            strings.Join(currentSettings.IgnoreIPs, " "),
 		Bantime:             currentSettings.Bantime,
@@ -808,6 +811,7 @@ func ensureJailLocalStructure() error {
 		banactionAllports = "iptables-allports"
 	}
 	defaultSection := fmt.Sprintf(`[DEFAULT]
+enabled = %t
 bantime.increment = %t
 ignoreip = %s
 bantime = %s
@@ -817,7 +821,7 @@ destemail = %s
 banaction = %s
 banaction_allports = %s
 
-`, settings.BantimeIncrement, ignoreIPStr, settings.Bantime, settings.Findtime, settings.Maxretry, settings.Destemail, banaction, banactionAllports)
+`, settings.DefaultJailEnable, settings.BantimeIncrement, ignoreIPStr, settings.Bantime, settings.Findtime, settings.Maxretry, settings.Destemail, banaction, banactionAllports)
 
 	// Build action_mwlg configuration
 	// Note: action_mwlg depends on action_ which depends on banaction (now defined above)
@@ -876,6 +880,7 @@ func updateJailLocalDefaultSection(settings AppSettings) error {
 	}
 	// Keys to update
 	keysToUpdate := map[string]string{
+		"enabled":            fmt.Sprintf("enabled = %t", settings.DefaultJailEnable),
 		"bantime.increment":  fmt.Sprintf("bantime.increment = %t", settings.BantimeIncrement),
 		"ignoreip":           fmt.Sprintf("ignoreip = %s", ignoreIPStr),
 		"bantime":            fmt.Sprintf("bantime = %s", settings.Bantime),
@@ -1347,6 +1352,7 @@ func UpdateSettings(new AppSettings) (AppSettings, error) {
 		}
 	}
 	restartTriggered := old.BantimeIncrement != new.BantimeIncrement ||
+		old.DefaultJailEnable != new.DefaultJailEnable ||
 		ignoreIPsChanged ||
 		old.Bantime != new.Bantime ||
 		old.Findtime != new.Findtime ||

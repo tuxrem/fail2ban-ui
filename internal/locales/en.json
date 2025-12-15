@@ -123,6 +123,8 @@
     "settings.fail2ban.description": "These settings will be applied to all enabled Fail2Ban servers and stored in their jail.local [DEFAULT] section.",
     "settings.enable_bantime_increment": "Enable Bantime Increment",
     "settings.enable_bantime_increment.description": "If set to true, the bantime will be calculated using the formula: bantime = findtime * (number of failures / maxretry) * (1 + bantime.rndtime).",
+    "settings.default_jail_enable": "Enable Jails by Default",
+    "settings.default_jail_enable.description": "If enabled, all jails will be enabled by default. When disabled, jails must be explicitly enabled.",
     "settings.default_bantime": "Default Bantime",
     "settings.default_bantime.description": "The number of seconds that a host is banned. Time format: 1h = 1 hour, 1d = 1 day, 1w = 1 week, 1m = 1 month, 1y = 1 year.",
     "settings.default_bantime_placeholder": "e.g., 48h",

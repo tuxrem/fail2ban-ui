@@ -82,6 +82,7 @@ function loadSettings() {
       }
 
       document.getElementById('bantimeIncrement').checked = data.bantimeIncrement || false;
+      document.getElementById('defaultJailEnable').checked = data.defaultJailEnable || false;
       document.getElementById('banTime').value = data.bantime || '';
       document.getElementById('findTime').value = data.findtime || '';
       document.getElementById('maxRetry').value = data.maxretry || '';
@@ -141,6 +142,7 @@ function saveSettings(event) {
     callbackUrl: callbackUrl,
     alertCountries: selectedCountries.length > 0 ? selectedCountries : ["ALL"],
     bantimeIncrement: document.getElementById('bantimeIncrement').checked,
+    defaultJailEnable: document.getElementById('defaultJailEnable').checked,
     bantime: document.getElementById('banTime').value.trim(),
     findtime: document.getElementById('findTime').value.trim(),
     maxretry: parseInt(document.getElementById('maxRetry').value, 10) || 3,

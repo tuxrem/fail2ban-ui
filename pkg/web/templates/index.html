@@ -585,6 +585,15 @@
             </div>
             <p class="text-xs text-gray-500 ml-9" data-i18n="settings.enable_bantime_increment.description">If set to true, the bantime will be calculated using the formula: bantime = findtime * (number of failures / maxretry) * (1 + bantime.rndtime).</p>
           </div>
+
+          <!-- Default Enabled -->
+          <div class="mb-4">
+            <div class="flex items-center mb-2">
+              <input type="checkbox" id="defaultJailEnable" class="h-4 w-7 text-blue-600 transition duration-150 ease-in-out" />
+              <label for="defaultJailEnable" class="ml-2 block text-sm font-medium text-gray-700" data-i18n="settings.default_jail_enable">Enable Jails by Default</label>
+            </div>
+            <p class="text-xs text-gray-500 ml-9" data-i18n="settings.default_jail_enable.description">If enabled, all jails will be enabled by default. When disabled, jails must be explicitly enabled.</p>
+          </div>
           
           <!-- Bantime -->
           <div class="mb-4">

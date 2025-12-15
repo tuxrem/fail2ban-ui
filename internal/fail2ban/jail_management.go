@@ -1023,6 +1023,7 @@ func UpdateDefaultSettingsLocal(settings config.AppSettings) error {
 	}
 	// Define the keys we want to update
 	keysToUpdate := map[string]string{
+		"enabled":            fmt.Sprintf("enabled = %t", settings.DefaultJailEnable),
 		"bantime.increment":  fmt.Sprintf("bantime.increment = %t", settings.BantimeIncrement),
 		"ignoreip":           fmt.Sprintf("ignoreip = %s", ignoreIPStr),
 		"bantime":            fmt.Sprintf("bantime = %s", settings.Bantime),
@@ -1042,7 +1043,7 @@ func UpdateDefaultSettingsLocal(settings config.AppSettings) error {
 		var newLines []string
 		newLines = append(newLines, strings.Split(strings.TrimRight(config.JailLocalBanner(), "\n"), "\n")...)
 		newLines = append(newLines, "[DEFAULT]")
-		for _, key := range []string{"bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail", "banaction", "banaction_allports"} {
+		for _, key := range []string{"enabled", "bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail", "banaction", "banaction_allports"} {
 			newLines = append(newLines, keysToUpdate[key])
 		}
 		newLines = append(newLines, "")
@@ -1115,14 +1116,14 @@ func UpdateDefaultSettingsLocal(settings config.AppSettings) error {
 	// If DEFAULT section wasn't found, create it at the beginning
 	if !defaultSectionFound {
 		defaultLines := []string{"[DEFAULT]"}
-		for _, key := range []string{"bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail"} {
+		for _, key := range []string{"enabled", "bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail"} {
 			defaultLines = append(defaultLines, keysToUpdate[key])
 		}
 		defaultLines = append(defaultLines, "")
 		outputLines = append(defaultLines, outputLines...)
 	} else {
 		// Add any missing keys to the DEFAULT section
-		for _, key := range []string{"bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail", "banaction", "banaction_allports"} {
+		for _, key := range []string{"enabled", "bantime.increment", "ignoreip", "bantime", "findtime", "maxretry", "destemail", "banaction", "banaction_allports"} {
 			if !keysUpdated[key] {
 				// Find the DEFAULT section and insert after it
 				for i, line := range outputLines {

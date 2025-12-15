@@ -386,6 +386,7 @@ func (ac *AgentConnector) UpdateDefaultSettings(ctx context.Context, settings co
 	}
 	payload := map[string]interface{}{
 		"bantimeIncrement":  settings.BantimeIncrement,
+		"defaultJailEnable": settings.DefaultJailEnable,
 		"ignoreip":          ignoreIPStr,
 		"bantime":           settings.Bantime,
 		"findtime":          settings.Findtime,

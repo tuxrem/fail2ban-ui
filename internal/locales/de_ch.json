@@ -123,6 +123,8 @@
     "settings.fail2ban.description": "Die Einstellige werde uf alli aktivierte Fail2Ban-Server aagwändet und i däre jail.local [DEFAULT]-Abschnitt gspeicheret.",
     "settings.enable_bantime_increment": "Bantime-Inkrement aktivierä",
     "settings.enable_bantime_increment.description": "Wenn uf true gsetzt, wird d Bantime nach dr Formle: bantime = findtime * (Aazahl vo de Fähler / maxretry) * (1 + bantime.rndtime) berechnet.",
+    "settings.default_jail_enable": "Jails standardmässig aktivieren",
+    "settings.default_jail_enable.description": "Wenn aktiviert, werde alli Jails standardmässig aktiviert. Wenn deaktiviert, mues jedes Jails explizit aktiviert werde.",
     "settings.default_bantime": "Standard-Bantime",
     "settings.default_bantime.description": "D Aazahl vo de Sekunde, wo ä Host gsperrt wird. Zytformat: 1h = 1 Stund, 1d = 1 Tag, 1w = 1 Wuche, 1m = 1 Monet, 1y = 1 Jahr.",
     "settings.default_bantime_placeholder": "z.B. 48h",

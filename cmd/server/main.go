@@ -93,7 +93,6 @@ func main() {
 	}
 }
 
-// isLOTRModeActive checks if LOTR mode is enabled in alert countries
 func isLOTRModeActive(alertCountries []string) bool {
 	if len(alertCountries) == 0 {
 		return false
@@ -106,10 +105,10 @@ func isLOTRModeActive(alertCountries []string) bool {
 	return false
 }
 
-// printWelcomeBanner prints a cool Tux banner with startup info.
+// printWelcomeBanner prints the Tux banner with startup info.
 func printWelcomeBanner(appPort string, isLOTRMode bool) {
 	greeting := getGreeting()
-	
+
 	if isLOTRMode {
 		const lotrBanner = `
       .--.
