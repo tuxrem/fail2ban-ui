@@ -1074,6 +1074,7 @@ func shouldAlertForCountry(country string, alertCountries []string) bool {
 func IndexHandler(c *gin.Context) {
 	c.HTML(http.StatusOK, "index.html", gin.H{
 		"timestamp": time.Now().Format(time.RFC1123),
+		"version":   time.Now().Unix(),
 	})
 }
 

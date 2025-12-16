@@ -27,7 +27,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
   <!-- Tailwind CSS - Try local first, fallback to CDN for development -->
-  <link rel="stylesheet" href="/static/tailwind.css" onerror="
+  <link rel="stylesheet" href="/static/tailwind.css?v={{.version}}" onerror="
     console.warn('Local Tailwind CSS not found, using CDN. For production, build Tailwind CSS. See README.md for instructions.');
     var script = document.createElement('script');
     script.src = 'https://cdn.tailwindcss.com';
@@ -39,9 +39,9 @@
   <!-- Select2 CSS -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/css/select2.min.css" />
   <!-- Fail2ban UI CSS -->
-  <link rel="stylesheet" href="/static/fail2ban-ui.css">
+  <link rel="stylesheet" href="/static/fail2ban-ui.css?v={{.version}}">
   <!-- LOTR Theme CSS (loaded conditionally) -->
-  <link rel="stylesheet" href="/static/lotr.css" id="lotr-css" disabled>
+  <link rel="stylesheet" href="/static/lotr.css?v={{.version}}" id="lotr-css" disabled>
   <!-- Google Fonts for LOTR theme -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1208,22 +1208,22 @@
   <script src="https://cdn.jsdelivr.net/npm/select2@4.0.13/dist/js/select2.min.js"></script>
 
   <!-- Fail2ban UI JavaScript Modules -->
-  <script src="/static/js/globals.js"></script>
-  <script src="/static/js/core.js"></script>
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/utils.js"></script>
-  <script src="/static/js/validation.js"></script>
-  <script src="/static/js/modals.js"></script>
-  <script src="/static/js/translations.js"></script>
-  <script src="/static/js/ignoreips.js"></script>
-  <script src="/static/js/dashboard.js"></script>
-  <script src="/static/js/servers.js"></script>
-  <script src="/static/js/jails.js"></script>
-  <script src="/static/js/settings.js"></script>
-  <script src="/static/js/filters.js"></script>
-  <script src="/static/js/websocket.js"></script>
-  <script src="/static/js/header.js"></script>
-  <script src="/static/js/lotr.js"></script>
-  <script src="/static/js/init.js"></script>
+  <script src="/static/js/globals.js?v={{.version}}"></script>
+  <script src="/static/js/core.js?v={{.version}}"></script>
+  <script src="/static/js/api.js?v={{.version}}"></script>
+  <script src="/static/js/utils.js?v={{.version}}"></script>
+  <script src="/static/js/validation.js?v={{.version}}"></script>
+  <script src="/static/js/modals.js?v={{.version}}"></script>
+  <script src="/static/js/translations.js?v={{.version}}"></script>
+  <script src="/static/js/ignoreips.js?v={{.version}}"></script>
+  <script src="/static/js/dashboard.js?v={{.version}}"></script>
+  <script src="/static/js/servers.js?v={{.version}}"></script>
+  <script src="/static/js/jails.js?v={{.version}}"></script>
+  <script src="/static/js/settings.js?v={{.version}}"></script>
+  <script src="/static/js/filters.js?v={{.version}}"></script>
+  <script src="/static/js/websocket.js?v={{.version}}"></script>
+  <script src="/static/js/header.js?v={{.version}}"></script>
+  <script src="/static/js/lotr.js?v={{.version}}"></script>
+  <script src="/static/js/init.js?v={{.version}}"></script>
 </body>
 </html>
