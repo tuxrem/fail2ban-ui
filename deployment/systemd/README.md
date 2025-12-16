@@ -16,11 +16,15 @@ semodule -i fail2ban-curl-allow.pp
 In this case we will run **Fail2Ban-UI from `/opt/fail2ban-ui/`** using systemd.
 
 ### Prerequisites
-Install **Go 1.22+** and required dependencies:
+Install **Go 1.24+** and required dependencies:
   ```bash
-  sudo dnf install -y golang git whois
+  sudo dnf install -y golang git
   ```
-Make sure you setup GeoIP and your country database is available under: `/usr/share/GeoIP/GeoLite2-Country.mmdb`
+> **Note:** Whois lookups are now performed by Fail2Ban UI directly (no Linux `whois` binary required).
+
+> **Note:** GeoIP lookups can use either:
+> - **Built-in (ip-api.com)**: Default option, requires no installation
+> - **MaxMind (Local Database)**: Optional, requires MaxMind GeoIP database at `/usr/share/GeoIP/GeoLite2-Country.mmdb`
 
 > **Note:** The local Fail2ban service is optional. Fail2Ban-UI can manage remote Fail2ban servers via SSH or API agents without requiring a local Fail2ban installation.
 
@@ -33,6 +37,7 @@ Clone the repository to `/opt/fail2ban-ui`:
 
 ### Create the fail2ban-ui.service
 Save this file as `/etc/systemd/system/fail2ban-ui.service`:
+For production deployments, please use a dedicated service account instead of root.
 
 ```ini
 [Unit]
@@ -87,9 +92,17 @@ After starting the service, access the web interface at `http://localhost:8080` 
 
 **Important:** On first launch, you need to:
 1. **Enable the local connector** (if Fail2ban runs on the same host), OR
-2. **Add a remote server** via SSH or API agent
+2. **Add a remote server** via SSH connection
 
 Go to **Settings** → **Manage Servers** in the web UI to configure your first Fail2ban server.
+
+**Configure Settings:**
+- **Fail2Ban Callback URL**: URL where Fail2Ban instances send ban alerts (auto-updates with port changes)
+- **Callback URL Secret**: Auto-generated 42-character secret for API authentication (viewable in Settings with show/hide toggle)
+- **GeoIP Provider**: Choose between MaxMind (local database) or Built-in (ip-api.com)
+- **Maximum Log Lines**: Configure how many log lines to include in ban notifications (default: 50)
+- Set up email alerts and set alert countries
+- Configure language preferences
 
 The UI uses an embedded SQLite database (`fail2ban-ui.db`) to store all server configurations and ban events. This database is automatically created in the working directory.
 
@@ -110,7 +123,6 @@ For **Docker** (if preferred):
 sudo dnf install -y docker
 sudo systemctl enable --now docker
 ```
-Make sure you setup GeoIP and your country database is available under: `/usr/share/GeoIP/GeoLite2-Country.mmdb`
 
 Create the needed folder to store the fail2ban-ui config:
 ```bash
@@ -134,8 +146,7 @@ ExecStart=/usr/bin/podman run --rm \
     -v /etc/fail2ban:/etc/fail2ban:Z \
     -v /var/log:/var/log:ro \
     -v /var/run/fail2ban:/var/run/fail2ban \
-    -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
-    localhost/fail2ban-ui
+    registry.swissmakers.ch/infra/fail2ban-ui:latest
 Restart=always
 RestartSec=10s
 

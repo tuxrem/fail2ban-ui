@@ -39,7 +39,8 @@ Modern enterprises face increasing security challenges with generally distribute
 **Centralized Control Across Distributed Fail2Ban Instances**
 
 - **Unified Dashboard**: Monitor and manage multiple Fail2Ban servers from a single interface
-- **Flexible Connectivity**: Support for local, SSH, and API agent connections form Fail2Ban-UI to other Fail2Ban Instances
+- **Flexible Connectivity**: Support for local, SSH, (and API agent) connections from Fail2Ban-UI to Fail2Ban Instances
+- **API Agent Connector**: Technical preview; Basic API functionality available, full implementation in progress
 - **Connection Testing**: Validate backend connectivity before activate them on the management UI
 
 **Use Cases:**
@@ -53,7 +54,9 @@ Modern enterprises face increasing security challenges with generally distribute
 
 - **Live Event Monitoring**: Real-time ban events from all configured / connected servers
 - **Historical Analysis**: SQLite-based event storage with advanced querying
-- **Geographic Intelligence**: Country-based threat analysis and visualization (Will be later send to SIEM - planned)
+- **Geographic Intelligence**: Country-based threat analysis and visualization with GeoIP and whois lookups (Option to send the logs to a SIEM is planned)
+- **Integrated Lookups**: Whois and GeoIP lookups are performed directly by Fail2Ban UI (no Linux binary dependencies anymore on fail2ban side)
+- **Smart Log Filtering**: Automatic selection of most relevant log lines for ban notifications
 - **Recurring Threat Detection**: Identify persistent attackers across time windows
 - **Ban Insights Dashboard**: Aggregated statistics
 - **Event Correlation**: Track attack patterns across multiple servers and jails (planned with Elasticsearch)
@@ -69,7 +72,7 @@ Modern enterprises face increasing security challenges with generally distribute
 
 - **Cross-Jail Search**: Find banned IPs across all active jails instantly
 - **Bulk Operations**: Manage multiple bans simultaneously
-- **Ban History**: Complete audit trail with timestamps, ban-reasons, and context like whois information of the attacker
+- **Ban History**: Complete audit trail with timestamps, ban-reasons, and context including whois and GeoIP information of the attacker
 - **Whitelist Management**: Configure trusted IPs and networks
 - **Automatic Unban**: Time-based ban expiration with configurable policies
 - **Permanent Ban for Reccuring IPs**: Set a threshold in the Settings, after what amount of Bans a IP is automatically banned permanently on Firewall (Currently Supported Mikrotik/PFSense)
@@ -88,9 +91,10 @@ Modern enterprises face increasing security challenges with generally distribute
 **Security Notifications**
 
 - **Multi-Language Email Alerts**: Localized notifications in currently 5 supported languages
-- **Country-Based Filtering**: Alert only on threats from specific geographic regions to reduce alert fatigue 
+- **Country-Based Filtering**: Alert only on threats from specific geographic regions to reduce alert fatigue
+- **GeoIP Provider Selection**: Choose between MaxMind (needs a local database) or Built-in (ip-api.com) for geographic lookups
 - **SMTP Integration**: Support M365 Mail-Servers with STARTTLS
-- **Emai Templates**: Currentls features a Modern and classic email design (more to come)
+- **Email Templates**: Currently features a Modern and classic email design (more to come)
 - **Alert Aggregation**: This feature is planned for the SIEM-modul
 
 ### 🔐 Enterprise Security
@@ -221,7 +225,7 @@ Comprehensive settings management for alerts, advanced banning, and system prefe
 
 ### Technology Stack
 
-- **Backend**: Go 1.21+ (Golang)
+- **Backend**: Go 1.24+ (Golang)
 - **Frontend**: Vanilla JavaScript, Tailwind CSS
 - **Database**: SQLite (embedded)
 - **Container Runtime**: Podman/Docker compatible
@@ -236,11 +240,11 @@ Comprehensive settings management for alerts, advanced banning, and system prefe
 
 - **Operating System**: Linux (RHEL 8+, Ubuntu 20.04+, Debian 11+, or containerized)
 - **Fail2Ban**: At least version 0.10+ installed and configured
-- **Go**: Version 1.21+ (only for source builds)
-- **Node.js**: Version 16+ (for Tailwind CSS builds)
+- **Go**: Version 1.24+ (only for source builds)
+- **Node.js**: Version 16+ (only for source build - Tailwind CSS)
 - **Permissions**: Root access to configure FACL and sudo-rules and Fail2Ban socket access
 
-### Installation Methods
+### Installation Methods (Example with mounts for local fail2ban connector)
 
 #### Method 1: Container Deployment (Recommended for Production)
 
@@ -261,7 +265,6 @@ podman run -d \
   -v /etc/fail2ban:/etc/fail2ban:Z \
   -v /var/log:/var/log:ro \
   -v /var/run/fail2ban:/var/run/fail2ban \
-  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
   registry.swissmakers.ch/infra/fail2ban-ui:latest
 ```
 
@@ -274,9 +277,9 @@ git clone https://github.com/swissmakers/fail2ban-ui.git
 cd fail2ban-ui
 
 # Build the image
-sudo podman build -t fail2ban-ui:latest .
+sudo podman build -t fail2ban-ui:dev .
 # or with Docker:
-sudo docker build -t fail2ban-ui:latest .
+sudo docker build -t fail2ban-ui:dev .
 
 # Run the container
 sudo podman run -d \
@@ -286,8 +289,7 @@ sudo podman run -d \
   -v /etc/fail2ban:/etc/fail2ban:Z \
   -v /var/log:/var/log:ro \
   -v /var/run/fail2ban:/var/run/fail2ban \
-  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
-  fail2ban-ui:latest
+  localhost/fail2ban-ui:dev
 ```
 
 **Option C: Using Docker Compose**
@@ -296,9 +298,13 @@ For easier management, use Docker Compose:
 ```bash
 # Copy the example file
 cp docker-compose.example.yml docker-compose.yml
+# or
+cp docker-compose-allinone.example.yml docker-compose.yml
 
 # Edit docker-compose.yml to customize (e.g., change PORT)
 # Then start:
+podman compose up -d 
+# or
 docker-compose up -d
 ```
 
@@ -314,11 +320,10 @@ podman run -d \
   -v /etc/fail2ban:/etc/fail2ban:Z \
   -v /var/log:/var/log:ro \
   -v /var/run/fail2ban:/var/run/fail2ban \
-  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
   registry.swissmakers.ch/infra/fail2ban-ui:latest
 ```
 
-Access the web interface at `http://localhost3080`.
+Access the web interface at `http://localhost:3080`.
 
 **Volume Mounts Explained**
 
@@ -327,10 +332,10 @@ Access the web interface at `http://localhost3080`.
 | `/config` | ✅ Yes | Stores SQLite database, application settings, and SSH keys for remote connections |
 | `/etc/fail2ban` | ✅ Yes* | Access to Fail2Ban configuration files (jails, filters, actions) |
 | `/var/run/fail2ban` | ✅ Yes* | Access to Fail2Ban control socket for local management |
-| `/var/log` | ⚠️ Optional | Read-only access to system logs for filter testing |
-| `/usr/share/GeoIP` | ⚠️ Optional | Read-only access to GeoIP databases for geographic analysis |
+| `/var/log` | ✅ Yes* | Read-Only | `:ro` | System log files for automated logpath tests on jail management. |
+| `/path/to/your/GeoIPFolder` | ⚠️ Optional | Read-Only | `:ro` | MaxMind GeoIP databases (only needed if using MaxMind provider) |
 
-*Required only if managing a local Fail2Ban instance. Not needed for remote-only deployments.
+*Required only if managing a local Fail2Ban instance as well. Not needed for remote-only deployments.
 
 **📖 [Complete Container Deployment Guide](./deployment/container/README.md)** - Detailed documentation including volume descriptions, SELinux configuration, and troubleshooting.
 
@@ -361,7 +366,7 @@ go build -o fail2ban-ui ./cmd/server/main.go
    - **Remote Server**: Add via SSH or API agent connection
 
 3. **Configure Settings**
-   - Set up email alerts (optional)
+   - Set up email alerts
    - Configure language preferences
    - Adjust security settings
 
@@ -384,15 +389,65 @@ go build -o fail2ban-ui ./cmd/server/main.go
 
 - **[SELinux Configuration](./deployment/container/SELinux/)**: Security policies for SELinux-enabled systems
 
-### Configuration
+### Connector Types
+
+Fail2Ban UI supports three types of connectors to manage remote and or local only Fail2Ban instances:
+
+#### Local Connector
+
+The local connector manages Fail2Ban on the same host/vm/container-stack where Fail2Ban UI runs. It does that by directly communicating with the local Fail2Ban instance via socked, without network overhead.
+
+**How it works:**
+- Accesses the Fail2Ban control socket at `/var/run/fail2ban/fail2ban.sock`
+- Reads and writes configuration files directly to `/etc/fail2ban/`
+- Requires FACL (File Access Control Lists) rules and passwordless sudo permissions to `/usr/bin/fail2ban-client` (if not running as privileged e.g. in a container)
+
+**When to use:**
+- ✅ Fail2Ban UI and Fail2Ban run on the same server
+- ✅ Single-server deployments
+- ✅ Development or testing environments
+- ✅ Maximum performance with zero network latency
+- ✅ Simplest setup with minimal configuration
+
+#### SSH Connector
+
+The SSH connector connects to remote Fail2Ban instances over SSH, enabling centralized management of distributed infrastructure. (no need to install fail2ban-UI everyware)
+
+**How it works:**
+- Establishes SSH connections to remote servers using key-based authentication
+- Transfers and manages configuration files encrypted over SSH
+- Automatically deploys custom Fail2Ban actions to remote instances for callback API ban-communication
+- Executes `fail2ban-client` commands remotely via SSH
+
+**When to use:**
+- ✅ Managing Fail2Ban instances on remote servers supporting SSH
+- ✅ Multi-server deployments across different hosts / reverse proxies
+- ✅ When Fail2Ban UI runs on a dedicated management server
+- ✅ Environments where direct socket access is not possible
+
+**Requirements:**
+- SSH key-based authentication (passwordless login)
+- Network connectivity from Fail2Ban UI host to remote server
+- Service account on remote server with appropriate permissions
+- Sudo access for Fail2Ban commands (configured via sudoers)
+- File system ACLs on remote server with write-permissions for `/etc/fail2ban/` directory
+
+#### API Agent Connector *(Technical Preview)*
+
+The API agent connector uses a lightweight agent installed on remote servers that communicates bouth ways, to and from Fail2Ban UI via REST API.
+
+**Status:** Implementation in progress
+
+### Configuration Values
 
 #### Fail2Ban Callback URL
 
-The **Fail2Ban Callback URL** is a critical setting that determines how Fail2Ban instances send ban alerts back to Fail2Ban UI. This URL is embedded in a custom Fail2Ban action file that gets deployed to all managed Fail2Ban instances (local, SSH, and API agent connections).
+The **Fail2Ban Callback URL** is a critical setting that determines how Fail2Ban instances send ban alerts back to Fail2Ban UI. This URL is embedded in a custom Fail2Ban action file as well as the secret that gets deployed to all managed Fail2Ban instances (both local and SSH). For the API agent connections, only the Callback URL and Secret is relevant.
 
 **How it works:**
-- When a Fail2Ban instance bans an IP, it executes the custom action which sends a POST request to the callback URL (`/api/ban` endpoint)
-- Fail2Ban UI receives these notifications and stores them in the database for monitoring and analysis
+- When a Fail2Ban instance bans an IP, it executes the custom action which sends a POST request including the secret to the callback URL (`/api/ban` endpoint)
+- If the secret is missing or wrong the request is dropped.
+- If the secret is valid, Fail2Ban-UI receives these notifications and stores them in the database for monitoring and analysis
 - The callback URL is automatically synchronized with the server port when using the default localhost pattern
 
 **Configuration Guidelines:**
@@ -417,21 +472,16 @@ The **Fail2Ban Callback URL** is a critical setting that determines how Fail2Ban
 - If using a reverse proxy, configure it to forward `/api/ban` requests to Fail2Ban UI
 - The callback URL is stored in `/etc/fail2ban/action.d/ui-custom-action.conf` on each managed Fail2Ban instance
 
-#### Adding a Local Server
+#### Adding a Local Server after initial setup
 
 The local connector allows managing Fail2Ban on the same host where Fail2Ban UI runs.
-
-**Requirements:**
-- Fail2Ban installed and running
-- Special FACL Rules and passwordless sudo to `/usr/bin/fail2ban-client`
-- Socket access: `/var/run/fail2ban/fail2ban.sock`
 
 **Enable in UI:**
 1. Navigate to **Settings** → **Manage Servers**
 2. Enable **Local Connector**
 3. Test connection to verify access
 
-#### Adding an SSH Server
+#### Adding an SSH Server after initial setup
 
 Connect to remote Fail2Ban instances via SSH for centralized management.
 
@@ -469,18 +519,13 @@ sudo setfacl -dRm u:sa_fail2ban:rwX /etc/fail2ban
 3. Select **SSH** connection type
 4. Configure:
    - **Name**: Descriptive server identifier
-   - **Host**: IP address or hostname
+   - **Host**: IP address or hostname (ip is always better, if DNS fails for some reason)
    - **Port**: SSH port (default: 22)
    - **SSH User**: Service account username
    - **SSH Key**: Select from `~/.ssh/` directory
-5. Click **Test Connection** to verify
+5. Tick "Enable connector"
 6. Save configuration
-
-**Security Benefits:**
-- Least privilege access model
-- No full sudo access required
-- Fine-grained file system permissions
-- Audit trail via sudo logs
+7. Click **Test Connection** to verify
 
 ---
 
@@ -494,9 +539,10 @@ sudo setfacl -dRm u:sa_fail2ban:rwX /etc/fail2ban
 
 #### Authentication and Authorization
 
-- **SSH Key Management**: Use strong SSH keys like 4096-bit RSA or even better Ed25519. When using RSA no smaler bit size please.
+- **SSH Key Management**: Use strong SSH keys like 4096-bit RSA or even better Ed25519. When using RSA no smaller bit size please.
 - **Service Accounts**: Use dedicated service accounts, not personal accounts
 - **Sudoers Configuration**: Minimal sudo permissions, no passwordless full sudo
+- **Callback Secret**: Auto-generated secret authenticates all ban notification requests; keep it secure and never expose
 
 #### Data Protection
 
@@ -610,6 +656,9 @@ Fail2Ban UI provides a RESTful API for programmatic access:
 
 **Notifications:**
 - `POST /api/ban` - Receive ban notification from Fail2Ban
+  - **Authentication**: Requires `X-Callback-Secret` header with valid secret
+  - **Request Body**: JSON with `serverId`, `ip`, `jail`, `hostname`, `failures`, `logs`
+  - **Response**: 200 OK on success, 401 Unauthorized if secret is invalid
 
 ---
 

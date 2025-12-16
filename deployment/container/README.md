@@ -35,7 +35,6 @@ podman run -d \
   -v /etc/fail2ban:/etc/fail2ban:Z \
   -v /var/log:/var/log:ro \
   -v /var/run/fail2ban:/var/run/fail2ban \
-  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
   registry.swissmakers.ch/infra/fail2ban-ui:latest
 ```
 
@@ -61,10 +60,10 @@ Access the web interface at `http://localhost:8080` (or your configured port).
 2. **Build the image:**
    ```bash
    # Using Podman
-   podman build -t fail2ban-ui:latest .
+   podman build -t fail2ban-ui:dev .
    
    # Using Docker
-   docker build -t fail2ban-ui:latest .
+   docker build -t fail2ban-ui:dev .
    ```
 
    > **Note:** The Dockerfile uses a multi-stage build with two stages: `builder` (compiles the Go binary) and `standalone-ui` (final runtime image).
@@ -85,14 +84,14 @@ You can customize the build with additional flags:
 podman build -t fail2ban-ui:v1.0.0 .
 
 # Build without cache
-podman build --no-cache -t fail2ban-ui:latest .
+podman build --no-cache -t fail2ban-ui:dev .
 ```
 
 ---
 
 ## Running the Container
 
-### Basic Run Command
+### Basic Run Command (for a local fail2ban connection)
 
 ```bash
 podman run -d \
@@ -102,7 +101,6 @@ podman run -d \
   -v /etc/fail2ban:/etc/fail2ban:Z \
   -v /var/log:/var/log:ro \
   -v /var/run/fail2ban:/var/run/fail2ban \
-  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
   fail2ban-ui:latest
 ```
 
@@ -119,7 +117,6 @@ podman run -d \
   -v /etc/fail2ban:/etc/fail2ban:Z \
   -v /var/log:/var/log:ro \
   -v /var/run/fail2ban:/var/run/fail2ban \
-  -v /usr/share/GeoIP:/usr/share/GeoIP:ro \
   fail2ban-ui:latest
 ```
 
@@ -172,7 +169,7 @@ The Fail2Ban UI container requires several volume mounts to function properly. B
   - `.ssh/` - Directory for SSH keys used for remote server connections
   - Application configuration files
 
-#### `/etc/fail2ban` - Fail2Ban Configuration Directory
+#### `/etc/fail2ban` - Fail2Ban Configuration Directory (reqired for local fail2ban connector only)
 - **Host Path:** `/etc/fail2ban`
 - **Container Path:** `/etc/fail2ban`
 - **Purpose:** Access to Fail2Ban configuration files (jails, filters, actions)
@@ -180,7 +177,7 @@ The Fail2Ban UI container requires several volume mounts to function properly. B
 - **SELinux Context:** `:Z` flag required on SELinux-enabled systems
 - **Note:** Required if managing local Fail2Ban instance
 
-#### `/var/run/fail2ban` - Fail2Ban Socket Directory
+#### `/var/run/fail2ban` - Fail2Ban Socket Directory (reqired for local fail2ban connector only)
 - **Host Path:** `/var/run/fail2ban`
 - **Container Path:** `/var/run/fail2ban`
 - **Purpose:** Access to Fail2Ban control socket (`fail2ban.sock`)
@@ -188,23 +185,21 @@ The Fail2Ban UI container requires several volume mounts to function properly. B
 - **SELinux Context:** Not required (tmpfs)
 - **Note:** Required for local Fail2Ban management
 
-### Optional Volumes
-
-#### `/var/log` - System Log Files
+#### `/var/log` - Log Files (reqired for local fail2ban connector only)
 - **Host Path:** `/var/log`
 - **Container Path:** `/var/log`
-- **Purpose:** Read access to system logs for filter testing and log analysis
+- **Purpose:** Read access to system logs for automatically logpath-tests on jail enabe
 - **Permissions:** Read-Only (`:ro`)
-- **SELinux Context:** `:ro` flag prevents SELinux issues
-- **Note:** Useful for testing Fail2Ban filters against log files
+- **Note:** If test fails, jail is auto-disabled to prevent fail2ban daemon errors
 
-#### `/usr/share/GeoIP` - GeoIP Database Directory
-- **Host Path:** `/usr/share/GeoIP`
-- **Container Path:** `/usr/share/GeoIP`
-- **Purpose:** Access to GeoIP databases for geographic threat analysis
+### Optional Volumes
+
+#### GeoLite2-Country.mmdb - GeoIP Database
+- **Host Path:** `/path/to/your/GeoIPFolder`
+- **Container Path:** e.g. `/usr/share/GeoIP` paht must match the settings in the UI.
+- **Purpose:** Only needed if you want to use the MaxMind provider.
 - **Permissions:** Read-Only (`:ro`)
-- **SELinux Context:** `:ro` flag prevents SELinux issues
-- **Note:** Optional but recommended for geographic IP analysis features
+- **Note:** Fail2Ban UI uses the built-in ip-api.com by default, which requires no local database
 
 ### Volume Summary Table
 
@@ -213,8 +208,8 @@ The Fail2Ban UI container requires several volume mounts to function properly. B
 | `/config` | ✅ Yes | Read/Write | `:Z` | Database, settings, SSH keys |
 | `/etc/fail2ban` | ✅ Yes* | Read/Write | `:Z` | Fail2Ban configuration files |
 | `/var/run/fail2ban` | ✅ Yes* | Read/Write | - | Fail2Ban control socket |
-| `/var/log` | ⚠️ Optional | Read-Only | `:ro` | System log files |
-| `/usr/share/GeoIP` | ⚠️ Optional | Read-Only | `:ro` | GeoIP databases |
+| `/var/log` | ✅ Yes* | Read-Only | `:ro` | System log files for automated logpath tests on jail management. |
+| `/path/to/your/GeoIPFolder` | ⚠️ Optional | Read-Only | `:ro` | MaxMind GeoIP databases (only needed if using MaxMind provider) |
 
 *Required only if managing a local Fail2Ban instance. Not needed for remote-only deployments.
 
@@ -246,6 +241,9 @@ After starting the container, access the web interface and configure your first 
      - For local deployments: Use the same port as Fail2Ban UI (e.g., `http://127.0.0.1:8080` or your configured port)
      - For reverse proxy setups: Use your TLS-encrypted endpoint (e.g., `https://fail2ban.example.com`)
      - The callback URL automatically updates when you change the server port (if using the default localhost pattern)
+   - **Callback URL Secret**: Auto-generated 42-character secret for authenticating ban notification requests (viewable in Settings with show/hide toggle)
+   - **GeoIP Provider**: Choose between MaxMind (local database) or Built-in (ip-api.com) - default is Built-in
+   - **Maximum Log Lines**: Configure how many log lines to include in ban notifications (default: 50)
    - Set up email alerts (optional)
    - Configure language preferences
    - Adjust security settings
@@ -261,31 +259,40 @@ After starting the container, access the web interface and configure your first 
 For easier management, you can use Docker Compose. Create a `docker-compose.yml` file:
 
 ```yaml
-version: '3.8'
-
 services:
   fail2ban-ui:
+    # Use pre-built image from registry
     image: registry.swissmakers.ch/infra/fail2ban-ui:latest
-    # Or build from source:
+
+    # Or build from source (uncomment to use):
     # build:
     #   context: .
     #   dockerfile: Dockerfile
+
     container_name: fail2ban-ui
+    #privileged: true # needed if you want to use a container-local fail2ban instance (because fail2ban.sock is owned by root)
+    # a single all-in-one container is planned, currently you need to use the fail2ban container from linuxserver, see docker-compose-allinone.yml for an example
     network_mode: host
-    restart: unless-stopped
+
     environment:
-      - PORT=8436  # Custom port (optional, defaults to 8080)
+      # Change this to use a different port for the web interface (defaults is 8080)
+      - PORT=8080
+
     volumes:
-      # Required: Configuration and database storage
+      # Required for fail2ban-ui: Stores SQLite database, application settings, and SSH keys of the fail2ban-ui container
       - /opt/podman-fail2ban-ui:/config:Z
-      # Required: Fail2Ban configuration directory
-      - /etc/fail2ban:/etc/fail2ban:Z
-      # Required: Fail2Ban socket directory
-      - /var/run/fail2ban:/var/run/fail2ban
-      # Optional: System logs (read-only)
+      # Required for fail2ban-ui: Used for testing, that logpath is working, before enabeling a jail. Without this read only access the fail2ban-ui will not be able to enable jails (logpath-test would fail)
       - /var/log:/var/log:ro
-      # Optional: GeoIP databases (read-only)
-      - /usr/share/GeoIP:/usr/share/GeoIP:ro
+
+      # Required for local fail2ban instance: Fail2Ban configuration directory, needed for managing a local Fail2Ban instance (e.g. on host system) via fail2ban-ui
+      - /etc/fail2ban:/etc/fail2ban:Z
+      # Required for local fail2ban instance: Fail2Ban socket directory, needed for local Fail2Ban (e.g. on host system) for control via fail2ban-ui
+      - /var/run/fail2ban:/var/run/fail2ban
+
+      # Optional: Map MaxMind GeoIP databases (only needed if using MaxMind provider)
+      #- /usr/share/GeoIP:/usr/share/GeoIP:ro
+
+    restart: unless-stopped
 ```
 
 **Start with Docker Compose:**
@@ -302,6 +309,44 @@ docker-compose logs -f
 ```bash
 docker-compose down
 ```
+
+### All-in-One Docker Compose Setup
+
+For a complete containerized setup with both Fail2Ban and Fail2Ban UI, use the all-in-one Docker Compose configuration:
+
+```bash
+# Copy the all-in-one example file
+cp ../docker-compose-allinone.example.yml docker-compose.yml
+
+# Edit docker-compose.yml to customize:
+# - PORT environment variable for Fail2Ban UI
+# - Timezone (TZ environment variable)
+# - Volume paths
+
+# Start both services
+docker-compose up -d
+```
+
+**Features:**
+- **Combined Setup**: Fail2Ban (linuxserver/fail2ban) and Fail2Ban UI in one compose file
+- **Shared Configuration**: Both containers share the same Fail2Ban configuration directory
+- **Shared Socket**: Both containers access the same Fail2Ban control socket
+- **Network Mode**: Uses `host` network mode for proper iptables integration
+
+**Volume Structure:**
+```
+./fail2ban-config/fail2ban  → /config/fail2ban (fail2ban container)
+./fail2ban-config/fail2ban  → /etc/fail2ban (fail2ban-ui container)
+./f2b-run                   → /var/run/fail2ban (both containers)
+./config                    → /config (fail2ban-ui container)
+```
+
+**Important Notes:**
+- The fail2ban-ui container requires `privileged: true` to modify Fail2Ban configs owned by root
+- Both containers must use `network_mode: host` for proper networking
+- Ensure SELinux labels are correct (`:z` or `:Z` flags)
+
+See `docker-compose-allinone.example.yml` in the project root for the complete configuration.
 
 ---
 
