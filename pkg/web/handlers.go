@@ -551,6 +551,28 @@ func UpsertServerHandler(c *gin.Context) {
 				// Don't fail the request, just log the warning
 			} else {
 				config.DebugLog("Successfully ensured jail.local structure for server %s", server.Name)
+
+				// If the server was just enabled, try to restart fail2ban and perform a basic health check.
+				if justEnabled {
+					if err := conn.Restart(c.Request.Context()); err != nil {
+						// Surface restart failures to the UI so the user sees that the service did not restart.
+						msg := fmt.Sprintf("failed to restart fail2ban for server %s: %v", server.Name, err)
+						config.DebugLog("Warning: %s", msg)
+						c.JSON(http.StatusInternalServerError, gin.H{
+							"error":  msg,
+							"server": server,
+						})
+						return
+					} else {
+						// Basic health check: attempt to fetch jail infos, which runs fail2ban-client status.
+						if _, err := conn.GetJailInfos(c.Request.Context()); err != nil {
+							config.DebugLog("Warning: fail2ban appears unhealthy on server %s after restart: %v", server.Name, err)
+							// Again, we log instead of failing the request to avoid breaking existing flows.
+						} else {
+							config.DebugLog("Fail2ban service appears healthy on server %s after restart", server.Name)
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1905,27 +1927,28 @@ func RestartFail2banHandler(c *gin.Context) {
 
 	server := conn.Server()
 
-	// Attempt to restart the fail2ban service.
-	restartErr := fail2ban.RestartFail2ban(server.ID)
-	if restartErr != nil {
-		// Check if running inside a container.
-		if _, container := os.LookupEnv("CONTAINER"); container && server.Type == "local" {
-			// In a container, the restart command may fail (since fail2ban runs on the host).
-			// Log the error and continue, so we can mark the restart as done.
-			log.Printf("Warning: restart failed inside container (expected behavior): %v", restartErr)
-		} else {
-			// On the host, a restart error is not acceptable.
-			c.JSON(http.StatusInternalServerError, gin.H{"error": restartErr.Error()})
-			return
-		}
+	// Attempt to restart the fail2ban service via the connector.
+	// Any error here means the service was not restarted, so we surface it to the UI.
+	mode, err := fail2ban.RestartFail2ban(server.ID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	// Only call MarkRestartDone if we either successfully restarted the service or we are in a container.
+	// Only call MarkRestartDone if we successfully restarted the service.
 	if err := config.MarkRestartDone(server.ID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "Fail2ban restarted successfully"})
+	msg := "Fail2ban service restarted successfully"
+	if mode == "reload" {
+		msg = "Fail2ban configuration reloaded successfully (no systemd service restart)"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": msg,
+		"mode":    mode,
+		"server":  server,
+	})
 }
 
 // loadLocale loads a locale JSON file and returns a map of translations

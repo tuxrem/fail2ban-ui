@@ -174,9 +174,41 @@ func (sc *SSHConnector) Reload(ctx context.Context) error {
 	return err
 }
 
+// RestartWithMode restarts (or reloads) the remote Fail2ban instance over SSH
+// and returns a mode string describing what happened:
+//   - "restart": systemd service was restarted and health check passed
+//   - "reload":  configuration was reloaded via fail2ban-client and pong check passed
 func (sc *SSHConnector) Restart(ctx context.Context) error {
-	_, err := sc.runRemoteCommand(ctx, []string{"sudo", "systemctl", "restart", "fail2ban"})
+	_, err := sc.RestartWithMode(ctx)
 	return err
+}
+
+// RestartWithMode implements the detailed restart logic for SSH connectors.
+func (sc *SSHConnector) RestartWithMode(ctx context.Context) (string, error) {
+	// First, we try systemd restart on the remote host
+	out, err := sc.runRemoteCommand(ctx, []string{"sudo", "systemctl", "restart", "fail2ban"})
+	if err == nil {
+		if err := sc.checkFail2banHealthyRemote(ctx); err != nil {
+			return "restart", fmt.Errorf("remote fail2ban health check after systemd restart failed: %w", err)
+		}
+		return "restart", nil
+	}
+
+	// Then, if systemd is not available, we fall back to fail2ban-client.
+	if sc.isSystemctlUnavailable(out, err) {
+		reloadOut, reloadErr := sc.runFail2banCommand(ctx, "reload")
+		if reloadErr != nil {
+			return "reload", fmt.Errorf("failed to reload fail2ban via fail2ban-client on remote: %w (output: %s)",
+				reloadErr, strings.TrimSpace(reloadOut))
+		}
+		if err := sc.checkFail2banHealthyRemote(ctx); err != nil {
+			return "reload", fmt.Errorf("remote fail2ban health check after reload failed: %w", err)
+		}
+		return "reload", nil
+	}
+
+	// systemctl exists but restart failed for some other reason, we surface it.
+	return "restart", fmt.Errorf("failed to restart fail2ban via systemd on remote: %w (output: %s)", err, out)
 }
 
 func (sc *SSHConnector) GetFilterConfig(ctx context.Context, jail string) (string, error) {
@@ -306,6 +338,30 @@ func (sc *SSHConnector) runFail2banCommand(ctx context.Context, args ...string) 
 	fail2banArgs := sc.buildFail2banArgs(args...)
 	cmdArgs := append([]string{"sudo", "fail2ban-client"}, fail2banArgs...)
 	return sc.runRemoteCommand(ctx, cmdArgs)
+}
+
+// isSystemctlUnavailable tries to detect “no systemd” situations on the remote host.
+func (sc *SSHConnector) isSystemctlUnavailable(output string, err error) bool {
+	msg := strings.ToLower(output + " " + err.Error())
+	return strings.Contains(msg, "command not found") ||
+		strings.Contains(msg, "system has not been booted with systemd") ||
+		strings.Contains(msg, "failed to connect to bus")
+}
+
+// checkFail2banHealthyRemote runs `sudo fail2ban-client ping` on the remote host
+// and expects a successful pong reply.
+func (sc *SSHConnector) checkFail2banHealthyRemote(ctx context.Context) error {
+	out, err := sc.runFail2banCommand(ctx, "ping")
+	trimmed := strings.TrimSpace(out)
+	if err != nil {
+		return fmt.Errorf("remote fail2ban ping error: %w (output: %s)", err, trimmed)
+	}
+	// Typical output is e.g. "Server replied: pong" – accept anything that
+	// contains "pong" case-insensitively.
+	if !strings.Contains(strings.ToLower(trimmed), "pong") {
+		return fmt.Errorf("unexpected remote fail2ban ping output: %s", trimmed)
+	}
+	return nil
 }
 
 func (sc *SSHConnector) buildFail2banArgs(args ...string) []string {
@@ -1147,12 +1203,13 @@ action = %(action_mwlg)s
 	// Escape single quotes for safe use in a single-quoted heredoc
 	escaped := strings.ReplaceAll(content, "'", "'\"'\"'")
 
-	// IMPORTANT: Run migration FIRST before ensuring structure
+	// IMPORTANT: Run migration FIRST before ensuring structure.
 	// This is because EnsureJailLocalStructure may overwrite jail.local,
 	// which would destroy any jail sections that need to be migrated.
+	// If migration fails for any reason, we SHOULD NOT overwrite jail.local,
+	// otherwise legacy jails would be lost.
 	if err := sc.MigrateJailsFromJailLocalRemote(ctx); err != nil {
-		config.DebugLog("Warning: No migration done (may be normal if no jails to migrate): %v", err)
-		// Don't fail - continue with ensuring structure
+		return fmt.Errorf("failed to migrate legacy jails from jail.local on remote server %s: %w", sc.server.Name, err)
 	}
 
 	// Write the rebuilt content via heredoc over SSH
@@ -1232,8 +1289,8 @@ func (sc *SSHConnector) MigrateJailsFromJailLocalRemote(ctx context.Context) err
 		writeScript := fmt.Sprintf(`cat > %s <<'JAILEOF'
 %s
 JAILEOF
-`, jailFilePath, escapedContent)
-		if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-c", writeScript}); err != nil {
+'`, jailFilePath, escapedContent)
+		if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", writeScript}); err != nil {
 			return fmt.Errorf("failed to write jail file %s: %w", jailFilePath, err)
 		}
 		config.DebugLog("Migrated jail %s to %s on remote system", jailName, jailFilePath)
@@ -1248,8 +1305,8 @@ JAILEOF
 		writeLocalScript := fmt.Sprintf(`cat > %s <<'LOCALEOF'
 %s
 LOCALEOF
-`, jailLocalPath, escapedDefault)
-		if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-c", writeLocalScript}); err != nil {
+'`, jailLocalPath, escapedDefault)
+		if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", writeLocalScript}); err != nil {
 			return fmt.Errorf("failed to rewrite jail.local: %w", err)
 		}
 		config.DebugLog("Migration completed on remote system: moved %d jails to jail.d/", migratedCount)

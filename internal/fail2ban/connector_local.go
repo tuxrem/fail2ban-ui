@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -163,17 +162,40 @@ func (lc *LocalConnector) Reload(ctx context.Context) error {
 	return nil
 }
 
+// RestartWithMode restarts (or reloads) the local Fail2ban instance and returns
+// a mode string describing what happened:
+//   - "restart": systemd service was restarted and health check passed
+//   - "reload":  configuration was reloaded via fail2ban-client and pong check passed
+func (lc *LocalConnector) RestartWithMode(ctx context.Context) (string, error) {
+	// 1) Try systemd restart if systemctl is available.
+	if _, err := exec.LookPath("systemctl"); err == nil {
+		cmd := "systemctl restart fail2ban"
+		out, err := executeShellCommand(ctx, cmd)
+		if err != nil {
+			return "restart", fmt.Errorf("failed to restart fail2ban via systemd: %w - output: %s",
+				err, strings.TrimSpace(out))
+		}
+		if err := lc.checkFail2banHealthy(ctx); err != nil {
+			return "restart", fmt.Errorf("fail2ban health check after systemd restart failed: %w", err)
+		}
+		return "restart", nil
+	}
+
+	// 2) Fallback: no systemctl in PATH (container image without systemd, or
+	//    non-systemd environment). Use fail2ban-client reload + ping.
+	if err := lc.Reload(ctx); err != nil {
+		return "reload", fmt.Errorf("failed to reload fail2ban via fail2ban-client (systemctl not available): %w", err)
+	}
+	if err := lc.checkFail2banHealthy(ctx); err != nil {
+		return "reload", fmt.Errorf("fail2ban health check after reload failed: %w", err)
+	}
+	return "reload", nil
+}
+
 // Restart implements Connector.
 func (lc *LocalConnector) Restart(ctx context.Context) error {
-	if _, container := os.LookupEnv("CONTAINER"); container {
-		return fmt.Errorf("restart not supported inside container; please restart fail2ban on the host")
-	}
-	cmd := "systemctl restart fail2ban"
-	out, err := executeShellCommand(ctx, cmd)
-	if err != nil {
-		return fmt.Errorf("failed to restart fail2ban: %w - output: %s", err, out)
-	}
-	return nil
+	_, err := lc.RestartWithMode(ctx)
+	return err
 }
 
 // GetFilterConfig implements Connector.
@@ -245,6 +267,22 @@ func (lc *LocalConnector) buildFail2banArgs(args ...string) []string {
 	}
 	base := []string{"-s", lc.server.SocketPath}
 	return append(base, args...)
+}
+
+// checkFail2banHealthy runs a quick `fail2ban-client ping` via the existing
+// runFail2banClient helper and expects a successful pong reply.
+func (lc *LocalConnector) checkFail2banHealthy(ctx context.Context) error {
+	out, err := lc.runFail2banClient(ctx, "ping")
+	trimmed := strings.TrimSpace(out)
+	if err != nil {
+		return fmt.Errorf("fail2ban ping error: %w (output: %s)", err, trimmed)
+	}
+	// Typical output is e.g. "Server replied: pong" – accept anything that
+	// contains "pong" case-insensitively.
+	if !strings.Contains(strings.ToLower(trimmed), "pong") {
+		return fmt.Errorf("unexpected fail2ban ping output: %s", trimmed)
+	}
+	return nil
 }
 
 // GetAllJails implements Connector.

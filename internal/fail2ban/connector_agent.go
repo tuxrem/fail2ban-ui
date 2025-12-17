@@ -109,6 +109,15 @@ func (ac *AgentConnector) Restart(ctx context.Context) error {
 	return ac.post(ctx, "/v1/actions/restart", nil, nil)
 }
 
+// RestartWithMode restarts the remote agent-managed Fail2ban service and
+// always reports mode "restart". Any error is propagated to the caller.
+func (ac *AgentConnector) RestartWithMode(ctx context.Context) (string, error) {
+	if err := ac.Restart(ctx); err != nil {
+		return "restart", err
+	}
+	return "restart", nil
+}
+
 func (ac *AgentConnector) GetFilterConfig(ctx context.Context, jail string) (string, error) {
 	var resp struct {
 		Config string `json:"config"`
