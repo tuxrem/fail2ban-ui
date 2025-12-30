@@ -1361,6 +1361,16 @@ func (sc *SSHConnector) UpdateDefaultSettings(ctx context.Context, settings conf
 		return strings.ReplaceAll(s, "'", "'\"'\"'")
 	}
 
+	// Convert boolean values to Python boolean literals
+	defaultJailEnablePython := "False"
+	if settings.DefaultJailEnable {
+		defaultJailEnablePython = "True"
+	}
+	bantimeIncrementPython := "False"
+	if settings.BantimeIncrement {
+		bantimeIncrementPython = "True"
+	}
+
 	updateScript := fmt.Sprintf(`python3 <<'PY'
 import re
 
@@ -1368,15 +1378,15 @@ jail_file = '%s'
 ignore_ip_str = '%s'
 banaction_val = '%s'
 banaction_allports_val = '%s'
-default_jail_enable_val = '%t'
-bantime_increment_val = '%t'
+default_jail_enable_val = %s
+bantime_increment_val = %s
 bantime_val = '%s'
 findtime_val = '%s'
 maxretry_val = %d
 destemail_val = '%s'
 keys_to_update = {
-    'enabled': 'enabled = ' + str(default_jail_enable_val),
-    'bantime.increment': 'bantime.increment = ' + str(bantime_increment_val),
+    'enabled': 'enabled = ' + str(default_jail_enable_val).lower(),
+    'bantime.increment': 'bantime.increment = ' + str(bantime_increment_val).lower(),
     'ignoreip': 'ignoreip = ' + ignore_ip_str,
     'bantime': 'bantime = ' + bantime_val,
     'findtime': 'findtime = ' + findtime_val,
@@ -1450,7 +1460,7 @@ else:
 
 with open(jail_file, 'w') as f:
     f.writelines(output_lines)
-PY`, escapeForShell(jailLocalPath), escapeForShell(ignoreIPStr), escapeForShell(banactionVal), escapeForShell(banactionAllportsVal), settings.BantimeIncrement, settings.DefaultJailEnable, escapeForShell(settings.Bantime), escapeForShell(settings.Findtime), settings.Maxretry, escapeForShell(settings.Destemail))
+PY`, escapeForShell(jailLocalPath), escapeForShell(ignoreIPStr), escapeForShell(banactionVal), escapeForShell(banactionAllportsVal), defaultJailEnablePython, bantimeIncrementPython, escapeForShell(settings.Bantime), escapeForShell(settings.Findtime), settings.Maxretry, escapeForShell(settings.Destemail))
 
 	_, err = sc.runRemoteCommand(ctx, []string{updateScript})
 	return err
