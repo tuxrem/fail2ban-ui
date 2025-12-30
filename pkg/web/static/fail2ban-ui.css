@@ -431,3 +431,45 @@ button.bg-red-500:hover, button.bg-red-600:hover {
     --tw-text-opacity: 1;
     color: rgb(22 101 52 / var(--tw-text-opacity, 1));
 }
+
+/* WebSocket Tooltip Styling */
+#wsTooltip {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.5;
+}
+
+#wsTooltip .text-green-400 {
+    color: rgb(74 222 128);
+}
+
+#wsTooltip .text-blue-400 {
+    color: rgb(96 165 250);
+}
+
+#wsTooltip .text-yellow-400 {
+    color: rgb(250 204 21);
+}
+
+#wsTooltip .text-orange-400 {
+    color: rgb(251 146 60);
+}
+
+#wsTooltip .text-gray-400 {
+    color: rgb(156 163 175);
+}
+
+#wsTooltip .text-gray-500 {
+    color: rgb(107 114 128);
+}
+
+#wsTooltip .border-gray-700 {
+    border-color: rgb(55 65 81);
+}
+
+#wsTooltip .border-b {
+    border-bottom-width: 1px;
+}
+
+#wsTooltip .border-t {
+    border-top-width: 1px;
+}
