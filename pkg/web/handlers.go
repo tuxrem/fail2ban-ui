@@ -1839,6 +1839,15 @@ func UpdateSettingsHandler(c *gin.Context) {
 			config.DebugLog("Warning: failed to update some remote action files: %v", err)
 			// Don't fail the request, just log the warning
 		}
+		// Also update local action file if callback URL changed
+		settings := config.GetSettings()
+		for _, server := range settings.Servers {
+			if server.Type == "local" && server.Enabled {
+				if err := config.EnsureLocalFail2banAction(server); err != nil {
+					config.DebugLog("Warning: failed to update local action file: %v", err)
+				}
+			}
+		}
 	}
 
 	// Check if Fail2Ban DEFAULT settings changed and push to all enabled servers

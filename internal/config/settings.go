@@ -141,6 +141,7 @@ const (
 	actionCallbackPlaceholder = "__CALLBACK_URL__"
 	actionServerIDPlaceholder = "__SERVER_ID__"
 	actionSecretPlaceholder   = "__CALLBACK_SECRET__"
+	actionCurlInsecureFlag    = "__CURL_INSECURE_FLAG__"
 )
 
 // jailLocalBanner is the standard banner for jail.local files
@@ -175,7 +176,7 @@ norestored = 1
 # Option: actionban
 # This executes a cURL request to notify our API when an IP is banned.
 
-actionban = /usr/bin/curl -X POST __CALLBACK_URL__/api/ban \
+actionban = /usr/bin/curl__CURL_INSECURE_FLAG__ -X POST __CALLBACK_URL__/api/ban \
      -H "Content-Type: application/json" \
      -H "X-Callback-Secret: __CALLBACK_SECRET__" \
      -d "$(jq -n --arg serverId '__SERVER_ID__' \
@@ -189,7 +190,7 @@ actionban = /usr/bin/curl -X POST __CALLBACK_URL__/api/ban \
 # Option: actionunban
 # This executes a cURL request to notify our API when an IP is unbanned.
 
-actionunban = /usr/bin/curl -X POST __CALLBACK_URL__/api/unban \
+actionunban = /usr/bin/curl__CURL_INSECURE_FLAG__ -X POST __CALLBACK_URL__/api/unban \
      -H "Content-Type: application/json" \
      -H "X-Callback-Secret: __CALLBACK_SECRET__" \
      -d "$(jq -n --arg serverId '__SERVER_ID__' \
@@ -1082,9 +1083,18 @@ func BuildFail2banActionConfig(callbackURL, serverID, secret string) string {
 			secret = generateCallbackSecret()
 		}
 	}
+	// Determine if we need to use -k flag for HTTPS with self-signed certificates
+	// This allows curl to work with self-signed, in-house CA certificates
+	// For HTTP URLs, we use a empty string.
+	curlInsecureFlag := ""
+	if strings.HasPrefix(strings.ToLower(trimmed), "https://") {
+		curlInsecureFlag = " -k"
+	}
+
 	config := strings.ReplaceAll(fail2banActionTemplate, actionCallbackPlaceholder, trimmed)
 	config = strings.ReplaceAll(config, actionServerIDPlaceholder, serverID)
 	config = strings.ReplaceAll(config, actionSecretPlaceholder, secret)
+	config = strings.ReplaceAll(config, actionCurlInsecureFlag, curlInsecureFlag)
 	return config
 }
 
