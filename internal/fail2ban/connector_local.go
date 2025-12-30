@@ -119,7 +119,8 @@ func (lc *LocalConnector) GetBannedIPs(ctx context.Context, jail string) ([]stri
 	lines := strings.Split(out, "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "IP list:") {
-			parts := strings.Split(line, ":")
+			// Use SplitN to only split on the first colon, preserving IPv6 addresses
+			parts := strings.SplitN(line, ":", 2)
 			if len(parts) > 1 {
 				ips := strings.Fields(strings.TrimSpace(parts[1]))
 				bannedIPs = append(bannedIPs, ips...)
@@ -241,7 +242,8 @@ func (lc *LocalConnector) getJails(ctx context.Context) ([]string, error) {
 	lines := strings.Split(out, "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "Jail list:") {
-			parts := strings.Split(line, ":")
+			// Use SplitN to only split on the first colon
+			parts := strings.SplitN(line, ":", 2)
 			if len(parts) > 1 {
 				raw := strings.TrimSpace(parts[1])
 				jails = strings.Split(raw, ",")
