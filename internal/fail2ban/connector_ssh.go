@@ -21,45 +21,50 @@ import (
 const sshEnsureActionScript = `python3 - <<'PY'
 import base64
 import pathlib
+import sys
 
-action_dir = pathlib.Path("/etc/fail2ban/action.d")
-action_dir.mkdir(parents=True, exist_ok=True)
-action_cfg = base64.b64decode("__PAYLOAD__").decode("utf-8")
-(action_dir / "ui-custom-action.conf").write_text(action_cfg)
-
-jail_file = pathlib.Path("/etc/fail2ban/jail.local")
-if not jail_file.exists():
-    jail_file.write_text("[DEFAULT]\n")
-
-lines = jail_file.read_text().splitlines()
-already = any("Custom Fail2Ban action applied by fail2ban-ui" in line for line in lines)
-if not already:
-    new_lines = []
-    inserted = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("action") and "ui-custom-action" not in stripped and not inserted:
-            if not stripped.startswith("#"):
-                new_lines.append("# " + line)
-            else:
-                new_lines.append(line)
-            new_lines.append("# Custom Fail2Ban action applied by fail2ban-ui")
-            new_lines.append("action = %(action_mwlg)s")
-            inserted = True
-            continue
-        new_lines.append(line)
-    if not inserted:
-        insert_at = None
-        for idx, value in enumerate(new_lines):
-            if value.strip().startswith("[DEFAULT]"):
-                insert_at = idx + 1
-                break
-        if insert_at is None:
-            new_lines.append("[DEFAULT]")
-            insert_at = len(new_lines)
-        new_lines.insert(insert_at, "# Custom Fail2Ban action applied by fail2ban-ui")
-        new_lines.insert(insert_at + 1, "action = %(action_mwlg)s")
-    jail_file.write_text("\n".join(new_lines) + "\n")
+try:
+    action_dir = pathlib.Path("/etc/fail2ban/action.d")
+    action_dir.mkdir(parents=True, exist_ok=True)
+    action_cfg = base64.b64decode("__PAYLOAD__").decode("utf-8")
+    (action_dir / "ui-custom-action.conf").write_text(action_cfg)
+    
+    jail_file = pathlib.Path("/etc/fail2ban/jail.local")
+    if not jail_file.exists():
+        jail_file.write_text("[DEFAULT]\n")
+    
+    lines = jail_file.read_text().splitlines()
+    already = any("Custom Fail2Ban action applied by fail2ban-ui" in line for line in lines)
+    if not already:
+        new_lines = []
+        inserted = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("action") and "ui-custom-action" not in stripped and not inserted:
+                if not stripped.startswith("#"):
+                    new_lines.append("# " + line)
+                else:
+                    new_lines.append(line)
+                new_lines.append("# Custom Fail2Ban action applied by fail2ban-ui")
+                new_lines.append("action = %(action_mwlg)s")
+                inserted = True
+                continue
+            new_lines.append(line)
+        if not inserted:
+            insert_at = None
+            for idx, value in enumerate(new_lines):
+                if value.strip().startswith("[DEFAULT]"):
+                    insert_at = idx + 1
+                    break
+            if insert_at is None:
+                new_lines.append("[DEFAULT]")
+                insert_at = len(new_lines)
+            new_lines.insert(insert_at, "# Custom Fail2Ban action applied by fail2ban-ui")
+            new_lines.insert(insert_at + 1, "action = %(action_mwlg)s")
+        jail_file.write_text("\n".join(new_lines) + "\n")
+except Exception as e:
+    sys.stderr.write(f"Error: {e}\n")
+    sys.exit(1)
 PY`
 
 // SSHConnector connects to a remote Fail2ban instance over SSH.
@@ -76,8 +81,17 @@ func NewSSHConnector(server config.Fail2banServer) (Connector, error) {
 		return nil, fmt.Errorf("sshUser is required for ssh connector")
 	}
 	conn := &SSHConnector{server: server}
-	if err := conn.ensureAction(context.Background()); err != nil {
-		fmt.Printf("warning: failed to ensure remote fail2ban action for %s: %v\n", server.Name, err)
+
+	// Use a timeout context to prevent hanging if SSH server isn't ready yet
+	// The action file can be ensured later when actually needed
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := conn.ensureAction(ctx); err != nil {
+		// Log warning but don't fail connector creation - action can be ensured later
+		config.DebugLog("warning: failed to ensure remote fail2ban action for %s during startup (server may not be ready): %v", server.Name, err)
+		// Don't return error - allow connector to be created even if action setup fails
+		// The action will be ensured later when UpdateActionFiles is called
 	}
 	return conn, nil
 }
@@ -186,7 +200,7 @@ func (sc *SSHConnector) Restart(ctx context.Context) error {
 // RestartWithMode implements the detailed restart logic for SSH connectors.
 func (sc *SSHConnector) RestartWithMode(ctx context.Context) (string, error) {
 	// First, we try systemd restart on the remote host
-	out, err := sc.runRemoteCommand(ctx, []string{"sudo", "systemctl", "restart", "fail2ban"})
+	out, err := sc.runRemoteCommand(ctx, []string{"systemctl", "restart", "fail2ban"})
 	if err == nil {
 		if err := sc.checkFail2banHealthyRemote(ctx); err != nil {
 			return "restart", fmt.Errorf("remote fail2ban health check after systemd restart failed: %w", err)
@@ -211,62 +225,59 @@ func (sc *SSHConnector) RestartWithMode(ctx context.Context) (string, error) {
 	return "restart", fmt.Errorf("failed to restart fail2ban via systemd on remote: %w (output: %s)", err, out)
 }
 
-func (sc *SSHConnector) GetFilterConfig(ctx context.Context, jail string) (string, error) {
+func (sc *SSHConnector) GetFilterConfig(ctx context.Context, filterName string) (string, string, error) {
 	// Validate filter name
-	jail = strings.TrimSpace(jail)
-	if jail == "" {
-		return "", fmt.Errorf("filter name cannot be empty")
+	filterName = strings.TrimSpace(filterName)
+	if filterName == "" {
+		return "", "", fmt.Errorf("filter name cannot be empty")
 	}
 
+	fail2banPath := sc.getFail2banPath(ctx)
 	// Try .local first, then fallback to .conf
-	localPath := fmt.Sprintf("/etc/fail2ban/filter.d/%s.local", jail)
-	confPath := fmt.Sprintf("/etc/fail2ban/filter.d/%s.conf", jail)
+	localPath := filepath.Join(fail2banPath, "filter.d", filterName+".local")
+	confPath := filepath.Join(fail2banPath, "filter.d", filterName+".conf")
 
-	out, err := sc.runRemoteCommand(ctx, []string{"cat", localPath})
+	content, err := sc.readRemoteFile(ctx, localPath)
 	if err == nil {
-		return out, nil
+		return content, localPath, nil
 	}
 
 	// Fallback to .conf
-	out, err = sc.runRemoteCommand(ctx, []string{"cat", confPath})
+	content, err = sc.readRemoteFile(ctx, confPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read remote filter config (tried .local and .conf): %w", err)
+		return "", "", fmt.Errorf("failed to read remote filter config (tried .local and .conf): %w", err)
 	}
-	return out, nil
+	return content, confPath, nil
 }
 
-func (sc *SSHConnector) SetFilterConfig(ctx context.Context, jail, content string) error {
+func (sc *SSHConnector) SetFilterConfig(ctx context.Context, filterName, content string) error {
 	// Validate filter name
-	jail = strings.TrimSpace(jail)
-	if jail == "" {
+	filterName = strings.TrimSpace(filterName)
+	if filterName == "" {
 		return fmt.Errorf("filter name cannot be empty")
 	}
 
-	// Ensure .local file exists (copy from .conf if needed)
-	localPath := fmt.Sprintf("/etc/fail2ban/filter.d/%s.local", jail)
-	confPath := fmt.Sprintf("/etc/fail2ban/filter.d/%s.conf", jail)
+	fail2banPath := sc.getFail2banPath(ctx)
+	filterDPath := filepath.Join(fail2banPath, "filter.d")
 
-	// Check if .local exists, if not, copy from .conf
-	checkScript := fmt.Sprintf(`
-		if [ ! -f "%s" ]; then
-			if [ -f "%s" ]; then
-				cp "%s" "%s"
-			else
-				echo "Error: filter .conf file does not exist: %s" >&2
-				exit 1
-			fi
-		fi
-	`, localPath, confPath, confPath, localPath, confPath)
-
-	_, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", checkScript})
+	// Ensure directory exists
+	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", filterDPath})
 	if err != nil {
+		return fmt.Errorf("failed to create filter.d directory: %w", err)
+	}
+
+	// Ensure .local file exists (copy from .conf if needed)
+	if err := sc.ensureRemoteLocalFile(ctx, filterDPath, filterName); err != nil {
 		return fmt.Errorf("failed to ensure filter .local file: %w", err)
 	}
 
 	// Write to .local file
-	cmd := fmt.Sprintf("cat <<'EOF' | tee %s >/dev/null\n%s\nEOF", localPath, content)
-	_, err = sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
-	return err
+	localPath := filepath.Join(filterDPath, filterName+".local")
+	if err := sc.writeRemoteFile(ctx, localPath, content); err != nil {
+		return fmt.Errorf("failed to write filter config: %w", err)
+	}
+
+	return nil
 }
 
 func (sc *SSHConnector) FetchBanEvents(ctx context.Context, limit int) ([]BanEvent, error) {
@@ -395,6 +406,12 @@ func (sc *SSHConnector) runRemoteCommand(ctx context.Context, command []string) 
 
 func (sc *SSHConnector) buildSSHArgs(command []string) []string {
 	args := []string{"-o", "BatchMode=yes"}
+	// Add connection timeout to prevent hanging
+	args = append(args,
+		"-o", "ConnectTimeout=10",
+		"-o", "ServerAliveInterval=5",
+		"-o", "ServerAliveCountMax=2",
+	)
 	// In containerized environments, disable strict host key checking
 	if _, container := os.LookupEnv("CONTAINER"); container {
 		args = append(args,
@@ -403,6 +420,14 @@ func (sc *SSHConnector) buildSSHArgs(command []string) []string {
 			"-o", "LogLevel=ERROR",
 		)
 	}
+	// Enable SSH connection multiplexing for faster connections
+	// Use a control socket based on server ID for connection reuse
+	controlPath := fmt.Sprintf("/tmp/ssh_control_%s_%s", sc.server.ID, strings.ReplaceAll(sc.server.Host, ".", "_"))
+	args = append(args,
+		"-o", "ControlMaster=auto",
+		"-o", fmt.Sprintf("ControlPath=%s", controlPath),
+		"-o", "ControlPersist=300", // Keep connection alive for 5 minutes
+	)
 	if sc.server.SSHKeyPath != "" {
 		args = append(args, "-i", sc.server.SSHKeyPath)
 	}
@@ -418,76 +443,182 @@ func (sc *SSHConnector) buildSSHArgs(command []string) []string {
 	return args
 }
 
-// GetAllJails implements Connector.
-func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
-	// Read jail.local (DEFAULT only) and jail.d files remotely
-	var allJails []JailInfo
+// listRemoteFiles lists files in a remote directory matching a pattern.
+// Uses Python to list files, which works better with FACL permissions than find/ls.
+func (sc *SSHConnector) listRemoteFiles(ctx context.Context, directory, pattern string) ([]string, error) {
+	// Use Python to list files - works better with FACL permissions
+	script := fmt.Sprintf(`python3 -c "
+import os
+import sys
+directory = %q
+pattern = %q
+try:
+    if os.path.isdir(directory):
+        files = os.listdir(directory)
+        for f in files:
+            if f.endswith(pattern) and not f.startswith('.'):
+                full_path = os.path.join(directory, f)
+                if os.path.isfile(full_path):
+                    print(full_path)
+except Exception as e:
+    sys.stderr.write(f'Error listing files: {e}\\n')
+    sys.exit(1)
+"`, directory, pattern)
 
-	// Parse jail.local (only DEFAULT section, skip other jails)
-	jailLocalContent, err := sc.runRemoteCommand(ctx, []string{"cat", "/etc/fail2ban/jail.local"})
-	if err == nil {
-		// Filter to only include DEFAULT section jails (though DEFAULT itself isn't returned as a jail)
-		jails := parseJailConfigContent(jailLocalContent)
-		// Filter out DEFAULT section - we only want actual jails
-		for _, jail := range jails {
-			if jail.JailName != "DEFAULT" {
-				allJails = append(allJails, jail)
-			}
+	out, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", script})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files in %s: %w", directory, err)
+	}
+
+	var files []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
 		}
 	}
 
-	// Parse jail.d directory - prefer .local over .conf files
-	// First get .local files
-	jailDLocalCmd := "find /etc/fail2ban/jail.d -maxdepth 1 -name '*.local' -type f 2>/dev/null"
-	jailDLocalList, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", jailDLocalCmd})
-	processedJails := make(map[string]bool)
-	if err == nil && jailDLocalList != "" {
-		for _, file := range strings.Split(jailDLocalList, "\n") {
-			file = strings.TrimSpace(file)
-			if file == "" {
+	return files, nil
+}
+
+// readRemoteFile reads the content of a remote file via SSH.
+func (sc *SSHConnector) readRemoteFile(ctx context.Context, filePath string) (string, error) {
+	content, err := sc.runRemoteCommand(ctx, []string{"cat", filePath})
+	if err != nil {
+		return "", fmt.Errorf("failed to read remote file %s: %w", filePath, err)
+	}
+	return content, nil
+}
+
+// writeRemoteFile writes content to a remote file via SSH using a heredoc.
+func (sc *SSHConnector) writeRemoteFile(ctx context.Context, filePath, content string) error {
+	// Escape single quotes for safe use in a single-quoted heredoc
+	escaped := strings.ReplaceAll(content, "'", "'\"'\"'")
+
+	// Use heredoc to write file content
+	script := fmt.Sprintf(`cat > %s <<'REMOTEEOF'
+%s
+REMOTEEOF
+`, filePath, escaped)
+
+	_, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", script})
+	if err != nil {
+		return fmt.Errorf("failed to write remote file %s: %w", filePath, err)
+	}
+	return nil
+}
+
+// ensureRemoteLocalFile ensures that a .local file exists on the remote system.
+// If .local doesn't exist, it copies from .conf if available, or creates an empty file.
+func (sc *SSHConnector) ensureRemoteLocalFile(ctx context.Context, basePath, name string) error {
+	localPath := fmt.Sprintf("%s/%s.local", basePath, name)
+	confPath := fmt.Sprintf("%s/%s.conf", basePath, name)
+
+	// Check if .local exists, if not, copy from .conf or create empty file
+	script := fmt.Sprintf(`
+		if [ ! -f "%s" ]; then
+			if [ -f "%s" ]; then
+				cp "%s" "%s"
+			else
+				# Create empty .local file if neither exists
+				touch "%s"
+			fi
+		fi
+	`, localPath, confPath, confPath, localPath, localPath)
+
+	_, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", script})
+	if err != nil {
+		return fmt.Errorf("failed to ensure remote .local file %s: %w", localPath, err)
+	}
+	return nil
+}
+
+// getFail2banPath detects the fail2ban configuration path on the remote system.
+// Returns /config/fail2ban for linuxserver images, or /etc/fail2ban for standard installations.
+func (sc *SSHConnector) getFail2banPath(ctx context.Context) string {
+	// Check if /config/fail2ban exists (linuxserver image)
+	checkScript := `if [ -d "/config/fail2ban" ]; then echo "/config/fail2ban"; elif [ -d "/etc/fail2ban" ]; then echo "/etc/fail2ban"; else echo "/etc/fail2ban"; fi`
+	out, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", checkScript})
+	if err == nil {
+		path := strings.TrimSpace(out)
+		if path != "" {
+			return path
+		}
+	}
+	// Default to /etc/fail2ban
+	return "/etc/fail2ban"
+}
+
+// GetAllJails implements Connector.
+// Discovers all jails from filesystem (mirrors local connector behavior).
+func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
+	fail2banPath := sc.getFail2banPath(ctx)
+	jailDPath := filepath.Join(fail2banPath, "jail.d")
+
+	var allJails []JailInfo
+	processedFiles := make(map[string]bool) // Track base names to avoid duplicates
+	processedJails := make(map[string]bool) // Track jail names to avoid duplicates
+
+	// List all .local files first
+	localFiles, err := sc.listRemoteFiles(ctx, jailDPath, ".local")
+	if err != nil {
+		config.DebugLog("Failed to list .local files in jail.d on server %s: %v", sc.server.Name, err)
+		// Continue with .conf files
+	} else {
+		// Process .local files
+		for _, filePath := range localFiles {
+			filename := filepath.Base(filePath)
+			baseName := strings.TrimSuffix(filename, ".local")
+			if baseName == "" || processedFiles[baseName] {
 				continue
 			}
-			// Skip files that start with . (like .local) - these are invalid
-			baseName := filepath.Base(file)
-			if strings.HasPrefix(baseName, ".") {
-				config.DebugLog("Skipping invalid jail file: %s", file)
+
+			processedFiles[baseName] = true
+
+			// Read and parse the file
+			content, err := sc.readRemoteFile(ctx, filePath)
+			if err != nil {
+				config.DebugLog("Failed to read jail file %s on server %s: %v", filePath, sc.server.Name, err)
 				continue
 			}
-			content, err := sc.runRemoteCommand(ctx, []string{"cat", file})
-			if err == nil {
-				jails := parseJailConfigContent(content)
-				for _, jail := range jails {
-					// Skip jails with empty names
-					if jail.JailName != "" {
-						allJails = append(allJails, jail)
-						processedJails[jail.JailName] = true
-					}
+
+			jails := parseJailConfigContent(content)
+			for _, jail := range jails {
+				if jail.JailName != "" && jail.JailName != "DEFAULT" && !processedJails[jail.JailName] {
+					allJails = append(allJails, jail)
+					processedJails[jail.JailName] = true
 				}
 			}
 		}
 	}
-	// Then get .conf files that don't have corresponding .local files
-	jailDConfCmd := "find /etc/fail2ban/jail.d -maxdepth 1 -name '*.conf' -type f 2>/dev/null"
-	jailDConfList, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", jailDConfCmd})
-	if err == nil && jailDConfList != "" {
-		for _, file := range strings.Split(jailDConfList, "\n") {
-			file = strings.TrimSpace(file)
-			if file == "" {
+
+	// List all .conf files that don't have corresponding .local files
+	confFiles, err := sc.listRemoteFiles(ctx, jailDPath, ".conf")
+	if err != nil {
+		config.DebugLog("Failed to list .conf files in jail.d on server %s: %v", sc.server.Name, err)
+	} else {
+		// Process .conf files
+		for _, filePath := range confFiles {
+			filename := filepath.Base(filePath)
+			baseName := strings.TrimSuffix(filename, ".conf")
+			if baseName == "" || processedFiles[baseName] {
 				continue
 			}
-			// Extract jail name from filename
-			baseName := strings.TrimSuffix(filepath.Base(file), ".conf")
-			// Skip files that start with . (like .conf) - these are invalid
-			if baseName == "" || strings.HasPrefix(filepath.Base(file), ".") {
-				config.DebugLog("Skipping invalid jail file: %s", file)
+
+			processedFiles[baseName] = true
+
+			// Read and parse the file
+			content, err := sc.readRemoteFile(ctx, filePath)
+			if err != nil {
+				config.DebugLog("Failed to read jail file %s on server %s: %v", filePath, sc.server.Name, err)
 				continue
 			}
-			// Only process if we haven't already processed this jail from a .local file
-			if !processedJails[baseName] {
-				content, err := sc.runRemoteCommand(ctx, []string{"cat", file})
-				if err == nil {
-					jails := parseJailConfigContent(content)
-					allJails = append(allJails, jails...)
+
+			jails := parseJailConfigContent(content)
+			for _, jail := range jails {
+				if jail.JailName != "" && jail.JailName != "DEFAULT" && !processedJails[jail.JailName] {
+					allJails = append(allJails, jail)
+					processedJails[jail.JailName] = true
 				}
 			}
 		}
@@ -498,8 +629,11 @@ func (sc *SSHConnector) GetAllJails(ctx context.Context) ([]JailInfo, error) {
 
 // UpdateJailEnabledStates implements Connector.
 func (sc *SSHConnector) UpdateJailEnabledStates(ctx context.Context, updates map[string]bool) error {
+	fail2banPath := sc.getFail2banPath(ctx)
+	jailDPath := filepath.Join(fail2banPath, "jail.d")
+
 	// Ensure jail.d directory exists
-	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", "/etc/fail2ban/jail.d"})
+	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", jailDPath})
 	if err != nil {
 		return fmt.Errorf("failed to create jail.d directory: %w", err)
 	}
@@ -513,8 +647,8 @@ func (sc *SSHConnector) UpdateJailEnabledStates(ctx context.Context, updates map
 			continue
 		}
 
-		localPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", jailName)
-		confPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.conf", jailName)
+		localPath := filepath.Join(jailDPath, jailName+".local")
+		confPath := filepath.Join(jailDPath, jailName+".conf")
 
 		// Ensure .local file exists (copy from .conf if needed)
 		ensureScript := fmt.Sprintf(`
@@ -591,48 +725,72 @@ func (sc *SSHConnector) UpdateJailEnabledStates(ctx context.Context, updates map
 }
 
 // GetFilters implements Connector.
+// Discovers all filters from filesystem (mirrors local connector behavior).
 func (sc *SSHConnector) GetFilters(ctx context.Context) ([]string, error) {
-	// Use find to list filter files
-	list, err := sc.runRemoteCommand(ctx, []string{"find", "/etc/fail2ban/filter.d", "-maxdepth", "1", "-type", "f"})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list filters: %w", err)
+	fail2banPath := sc.getFail2banPath(ctx)
+	filterDPath := filepath.Join(fail2banPath, "filter.d")
+
+	filterMap := make(map[string]bool)      // Track unique filter names
+	processedFiles := make(map[string]bool) // Track base names to avoid duplicates
+
+	// Helper function to check if file should be excluded
+	shouldExclude := func(filename string) bool {
+		if strings.HasSuffix(filename, ".bak") ||
+			strings.HasSuffix(filename, "~") ||
+			strings.HasSuffix(filename, ".old") ||
+			strings.HasSuffix(filename, ".rpmnew") ||
+			strings.HasSuffix(filename, ".rpmsave") ||
+			strings.Contains(filename, "README") {
+			return true
+		}
+		return false
 	}
-	// Filter for .conf files and extract names in Go
-	var filters []string
-	seen := make(map[string]bool) // Avoid duplicates
-	for _, line := range strings.Split(list, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Only process .conf files - be strict about the extension
-		if !strings.HasSuffix(line, ".conf") {
-			continue
-		}
-		// Exclude backup files and other non-filter files
-		if strings.HasSuffix(line, ".conf.bak") ||
-			strings.HasSuffix(line, ".conf~") ||
-			strings.HasSuffix(line, ".conf.old") ||
-			strings.HasSuffix(line, ".conf.rpmnew") ||
-			strings.HasSuffix(line, ".conf.rpmsave") ||
-			strings.Contains(line, "README") {
-			continue
-		}
-		parts := strings.Split(line, "/")
-		if len(parts) > 0 {
-			filename := parts[len(parts)-1]
-			// Double-check it ends with .conf
-			if !strings.HasSuffix(filename, ".conf") {
+
+	// First pass: collect all .local files (these take precedence)
+	localFiles, err := sc.listRemoteFiles(ctx, filterDPath, ".local")
+	if err != nil {
+		config.DebugLog("Failed to list .local filters on server %s: %v", sc.server.Name, err)
+	} else {
+		for _, filePath := range localFiles {
+			filename := filepath.Base(filePath)
+			if shouldExclude(filename) {
 				continue
 			}
-			name := strings.TrimSuffix(filename, ".conf")
-			if name != "" && !seen[name] {
-				seen[name] = true
-				filters = append(filters, name)
+			baseName := strings.TrimSuffix(filename, ".local")
+			if baseName == "" || processedFiles[baseName] {
+				continue
 			}
+			processedFiles[baseName] = true
+			filterMap[baseName] = true
 		}
 	}
+
+	// Second pass: collect .conf files that don't have corresponding .local files
+	confFiles, err := sc.listRemoteFiles(ctx, filterDPath, ".conf")
+	if err != nil {
+		config.DebugLog("Failed to list .conf filters on server %s: %v", sc.server.Name, err)
+	} else {
+		for _, filePath := range confFiles {
+			filename := filepath.Base(filePath)
+			if shouldExclude(filename) {
+				continue
+			}
+			baseName := strings.TrimSuffix(filename, ".conf")
+			if baseName == "" || processedFiles[baseName] {
+				continue
+			}
+			processedFiles[baseName] = true
+			filterMap[baseName] = true
+		}
+	}
+
+	// Convert map to sorted slice
+	var filters []string
+	for name := range filterMap {
+		filters = append(filters, name)
+	}
 	sort.Strings(filters)
+
 	return filters, nil
 }
 
@@ -719,29 +877,30 @@ fail2ban-regex "$TMPFILE" "$FILTER_PATH" || true
 }
 
 // GetJailConfig implements Connector.
-func (sc *SSHConnector) GetJailConfig(ctx context.Context, jail string) (string, error) {
+func (sc *SSHConnector) GetJailConfig(ctx context.Context, jail string) (string, string, error) {
 	// Validate jail name
 	jail = strings.TrimSpace(jail)
 	if jail == "" {
-		return "", fmt.Errorf("jail name cannot be empty")
+		return "", "", fmt.Errorf("jail name cannot be empty")
 	}
 
+	fail2banPath := sc.getFail2banPath(ctx)
 	// Try .local first, then fallback to .conf
-	localPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", jail)
-	confPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.conf", jail)
+	localPath := filepath.Join(fail2banPath, "jail.d", jail+".local")
+	confPath := filepath.Join(fail2banPath, "jail.d", jail+".conf")
 
-	out, err := sc.runRemoteCommand(ctx, []string{"cat", localPath})
+	content, err := sc.readRemoteFile(ctx, localPath)
 	if err == nil {
-		return out, nil
+		return content, localPath, nil
 	}
 
 	// Fallback to .conf
-	out, err = sc.runRemoteCommand(ctx, []string{"cat", confPath})
+	content, err = sc.readRemoteFile(ctx, confPath)
 	if err != nil {
-		// If neither exists, return empty jail section
-		return fmt.Sprintf("[%s]\n", jail), nil
+		// If neither exists, return empty jail section with .local path (will be created on save)
+		return fmt.Sprintf("[%s]\n", jail), localPath, nil
 	}
-	return out, nil
+	return content, confPath, nil
 }
 
 // SetJailConfig implements Connector.
@@ -752,34 +911,27 @@ func (sc *SSHConnector) SetJailConfig(ctx context.Context, jail, content string)
 		return fmt.Errorf("jail name cannot be empty")
 	}
 
-	localPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.local", jail)
-	confPath := fmt.Sprintf("/etc/fail2ban/jail.d/%s.conf", jail)
+	fail2banPath := sc.getFail2banPath(ctx)
+	jailDPath := filepath.Join(fail2banPath, "jail.d")
 
 	// Ensure jail.d directory exists
-	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", "/etc/fail2ban/jail.d"})
+	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", jailDPath})
 	if err != nil {
 		return fmt.Errorf("failed to create jail.d directory: %w", err)
 	}
 
 	// Ensure .local file exists (copy from .conf if needed)
-	ensureScript := fmt.Sprintf(`
-		if [ ! -f "%s" ]; then
-			if [ -f "%s" ]; then
-				cp "%s" "%s"
-			else
-				echo "[%s]" > "%s"
-			fi
-		fi
-	`, localPath, confPath, confPath, localPath, jail, localPath)
-
-	if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", ensureScript}); err != nil {
+	if err := sc.ensureRemoteLocalFile(ctx, jailDPath, jail); err != nil {
 		return fmt.Errorf("failed to ensure .local file for jail %s: %w", jail, err)
 	}
 
 	// Write to .local file
-	cmd := fmt.Sprintf("cat <<'EOF' | tee %s >/dev/null\n%s\nEOF", localPath, content)
-	_, err = sc.runRemoteCommand(ctx, []string{"bash", "-lc", cmd})
-	return err
+	localPath := filepath.Join(jailDPath, jail+".local")
+	if err := sc.writeRemoteFile(ctx, localPath, content); err != nil {
+		return fmt.Errorf("failed to write jail config: %w", err)
+	}
+
+	return nil
 }
 
 // TestLogpath implements Connector.
@@ -1231,19 +1383,20 @@ func (sc *SSHConnector) MigrateJailsFromJailLocalRemote(ctx context.Context) err
 	checkScript := fmt.Sprintf("test -f %s && echo 'exists' || echo 'notfound'", jailLocalPath)
 	out, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", checkScript})
 	if err != nil || strings.TrimSpace(out) != "exists" {
+		config.DebugLog("No jails to migrate from jail.local on server %s (file does not exist)", sc.server.Name)
 		return nil // Nothing to migrate
 	}
 
 	// Read jail.local content
 	content, err := sc.runRemoteCommand(ctx, []string{"cat", jailLocalPath})
 	if err != nil {
-		return fmt.Errorf("failed to read jail.local: %w", err)
+		return fmt.Errorf("failed to read jail.local on server %s: %w", sc.server.Name, err)
 	}
 
 	// Parse content locally to extract non-commented sections
 	sections, defaultContent, err := parseJailSectionsUncommented(content)
 	if err != nil {
-		return fmt.Errorf("failed to parse jail.local: %w", err)
+		return fmt.Errorf("failed to parse jail.local on server %s: %w", sc.server.Name, err)
 	}
 
 	// If no non-commented, non-DEFAULT jails found, nothing to migrate
@@ -1256,14 +1409,14 @@ func (sc *SSHConnector) MigrateJailsFromJailLocalRemote(ctx context.Context) err
 	backupPath := jailLocalPath + ".backup." + fmt.Sprintf("%d", time.Now().Unix())
 	backupScript := fmt.Sprintf("cp %s %s", jailLocalPath, backupPath)
 	if _, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", backupScript}); err != nil {
-		return fmt.Errorf("failed to create backup: %w", err)
+		return fmt.Errorf("failed to create backup on server %s: %w", sc.server.Name, err)
 	}
-	config.DebugLog("Created backup of jail.local at %s on remote system", backupPath)
+	config.DebugLog("Created backup of jail.local at %s on server %s", backupPath, sc.server.Name)
 
 	// Ensure jail.d directory exists
 	ensureDirScript := fmt.Sprintf("mkdir -p %s", jailDPath)
 	if _, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", ensureDirScript}); err != nil {
-		return fmt.Errorf("failed to create jail.d directory: %w", err)
+		return fmt.Errorf("failed to create jail.d directory on server %s: %w", sc.server.Name, err)
 	}
 
 	// Write each jail to its own .local file
@@ -1279,7 +1432,7 @@ func (sc *SSHConnector) MigrateJailsFromJailLocalRemote(ctx context.Context) err
 		checkFileScript := fmt.Sprintf("test -f %s && echo 'exists' || echo 'notfound'", jailFilePath)
 		fileOut, err := sc.runRemoteCommand(ctx, []string{"sh", "-c", checkFileScript})
 		if err == nil && strings.TrimSpace(fileOut) == "exists" {
-			config.DebugLog("Skipping migration for jail %s: .local file already exists", jailName)
+			config.DebugLog("Skipping migration for jail %s on server %s: .local file already exists", jailName, sc.server.Name)
 			continue
 		}
 
@@ -1293,7 +1446,7 @@ JAILEOF
 		if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", writeScript}); err != nil {
 			return fmt.Errorf("failed to write jail file %s: %w", jailFilePath, err)
 		}
-		config.DebugLog("Migrated jail %s to %s on remote system", jailName, jailFilePath)
+		config.DebugLog("Migrated jail %s to %s on server %s", jailName, jailFilePath, sc.server.Name)
 		migratedCount++
 	}
 
@@ -1309,7 +1462,107 @@ LOCALEOF
 		if _, err := sc.runRemoteCommand(ctx, []string{"bash", "-lc", writeLocalScript}); err != nil {
 			return fmt.Errorf("failed to rewrite jail.local: %w", err)
 		}
-		config.DebugLog("Migration completed on remote system: moved %d jails to jail.d/", migratedCount)
+		config.DebugLog("Migration completed on server %s: moved %d jails to jail.d/", sc.server.Name, migratedCount)
+	}
+
+	return nil
+}
+
+// CreateJail implements Connector.
+func (sc *SSHConnector) CreateJail(ctx context.Context, jailName, content string) error {
+	// Validate jail name
+	if err := ValidateJailName(jailName); err != nil {
+		return err
+	}
+
+	fail2banPath := sc.getFail2banPath(ctx)
+	jailDPath := filepath.Join(fail2banPath, "jail.d")
+
+	// Ensure jail.d directory exists
+	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", jailDPath})
+	if err != nil {
+		return fmt.Errorf("failed to create jail.d directory: %w", err)
+	}
+
+	// Validate content starts with correct section header
+	trimmed := strings.TrimSpace(content)
+	expectedSection := fmt.Sprintf("[%s]", jailName)
+	if !strings.HasPrefix(trimmed, expectedSection) {
+		// Prepend the section header if missing
+		content = expectedSection + "\n" + content
+	}
+
+	// Write the file
+	localPath := filepath.Join(jailDPath, jailName+".local")
+	if err := sc.writeRemoteFile(ctx, localPath, content); err != nil {
+		return fmt.Errorf("failed to create jail file: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteJail implements Connector.
+func (sc *SSHConnector) DeleteJail(ctx context.Context, jailName string) error {
+	// Validate jail name
+	if err := ValidateJailName(jailName); err != nil {
+		return err
+	}
+
+	fail2banPath := sc.getFail2banPath(ctx)
+	localPath := filepath.Join(fail2banPath, "jail.d", jailName+".local")
+	confPath := filepath.Join(fail2banPath, "jail.d", jailName+".conf")
+
+	// Delete both .local and .conf files if they exist (rm -f doesn't error if file doesn't exist)
+	// Use a single command to delete both files
+	_, err := sc.runRemoteCommand(ctx, []string{"rm", "-f", localPath, confPath})
+	if err != nil {
+		return fmt.Errorf("failed to delete jail files %s or %s: %w", localPath, confPath, err)
+	}
+
+	return nil
+}
+
+// CreateFilter implements Connector.
+func (sc *SSHConnector) CreateFilter(ctx context.Context, filterName, content string) error {
+	// Validate filter name
+	if err := ValidateFilterName(filterName); err != nil {
+		return err
+	}
+
+	fail2banPath := sc.getFail2banPath(ctx)
+	filterDPath := filepath.Join(fail2banPath, "filter.d")
+
+	// Ensure filter.d directory exists
+	_, err := sc.runRemoteCommand(ctx, []string{"mkdir", "-p", filterDPath})
+	if err != nil {
+		return fmt.Errorf("failed to create filter.d directory: %w", err)
+	}
+
+	// Write the file
+	localPath := filepath.Join(filterDPath, filterName+".local")
+	if err := sc.writeRemoteFile(ctx, localPath, content); err != nil {
+		return fmt.Errorf("failed to create filter file: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteFilter implements Connector.
+func (sc *SSHConnector) DeleteFilter(ctx context.Context, filterName string) error {
+	// Validate filter name
+	if err := ValidateFilterName(filterName); err != nil {
+		return err
+	}
+
+	fail2banPath := sc.getFail2banPath(ctx)
+	localPath := filepath.Join(fail2banPath, "filter.d", filterName+".local")
+	confPath := filepath.Join(fail2banPath, "filter.d", filterName+".conf")
+
+	// Delete both .local and .conf files if they exist (rm -f doesn't error if file doesn't exist)
+	// Use a single command to delete both files
+	_, err := sc.runRemoteCommand(ctx, []string{"rm", "-f", localPath, confPath})
+	if err != nil {
+		return fmt.Errorf("failed to delete filter files %s or %s: %w", localPath, confPath, err)
 	}
 
 	return nil

@@ -199,7 +199,7 @@ func (lc *LocalConnector) Restart(ctx context.Context) error {
 }
 
 // GetFilterConfig implements Connector.
-func (lc *LocalConnector) GetFilterConfig(ctx context.Context, jail string) (string, error) {
+func (lc *LocalConnector) GetFilterConfig(ctx context.Context, jail string) (string, string, error) {
 	return GetFilterConfigLocal(jail)
 }
 
@@ -306,7 +306,7 @@ func (lc *LocalConnector) TestFilter(ctx context.Context, filterName string, log
 }
 
 // GetJailConfig implements Connector.
-func (lc *LocalConnector) GetJailConfig(ctx context.Context, jail string) (string, error) {
+func (lc *LocalConnector) GetJailConfig(ctx context.Context, jail string) (string, string, error) {
 	return GetJailConfig(jail)
 }
 
@@ -336,6 +336,26 @@ func (lc *LocalConnector) EnsureJailLocalStructure(ctx context.Context) error {
 	// config.EnsureLocalFail2banAction() is called, so migration has already
 	// run by the time this method is called.
 	return config.EnsureJailLocalStructure()
+}
+
+// CreateJail implements Connector.
+func (lc *LocalConnector) CreateJail(ctx context.Context, jailName, content string) error {
+	return CreateJail(jailName, content)
+}
+
+// DeleteJail implements Connector.
+func (lc *LocalConnector) DeleteJail(ctx context.Context, jailName string) error {
+	return DeleteJail(jailName)
+}
+
+// CreateFilter implements Connector.
+func (lc *LocalConnector) CreateFilter(ctx context.Context, filterName, content string) error {
+	return CreateFilter(filterName, content)
+}
+
+// DeleteFilter implements Connector.
+func (lc *LocalConnector) DeleteFilter(ctx context.Context, filterName string) error {
+	return DeleteFilter(filterName)
 }
 
 func executeShellCommand(ctx context.Context, command string) (string, error) {
